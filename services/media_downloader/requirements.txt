@@ -1,0 +1,7 @@
+sqlalchemy[asyncio]
+asyncpg
+yt-dlp
+ffmpeg-python
+aiogram
+cryptography
+pydantic-settings

@@ -1,0 +1,121 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: instatgbot
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - instatg_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    networks:
+      - instatg_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+
+  admin_panel:
+    build:
+      context: .
+      dockerfile: ./admin_panel/Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      PYTHONPATH: /app
+    volumes:
+      - ./alembic.ini:/app/alembic.ini
+      - ./shared:/app/shared
+      - /var/run/docker.sock:/var/run/docker.sock
+      - temp_downloads:/app/temp/downloads
+    networks:
+      - instatg_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  telegram_bot:
+    build:
+      context: ./services/telegram_bot
+    env_file:
+      - .env
+    environment:
+      PYTHONPATH: /
+    command: ["python", "/services/telegram_bot/main.py"]
+    volumes:
+      - ./services/telegram_bot:/services/telegram_bot:ro
+      - ./shared:/shared:ro
+    networks:
+      - instatg_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  notification_service:
+    build:
+      context: ./services/notification_service
+    env_file:
+      - .env
+    environment:
+      PYTHONPATH: /app:/
+    working_dir: /tmp
+    command: ["python", "/app/main.py"]
+    volumes:
+      - ./services/notification_service:/app:ro
+      - ./shared:/shared:ro
+    networks:
+      - instatg_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:stable-alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./admin_panel:/usr/src/app/admin_panel:ro
+    networks:
+      - instatg_network
+    depends_on:
+      admin_panel:
+        condition: service_started
+    restart: unless-stopped
+
+networks:
+  instatg_network:
+    name: instatg_network
+
+volumes:
+  postgres_data:
+  redis_data:
+  temp_downloads:

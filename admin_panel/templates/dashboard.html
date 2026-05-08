@@ -1,0 +1,261 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - INSTATG Admin Panel{% endblock %}
+
+{% block content %}
+<div x-data="dashboard()" x-init="init()" class="space-y-6">
+    <!-- Page Title -->
+    <h1 class="text-3xl font-bold text-white">Dashboard</h1>
+    
+    <!-- Metrics Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <!-- Queue Pending -->
+        <div class="card p-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-gray-400 text-sm">Queue Pending</p>
+                    <p class="text-3xl font-bold text-blue-400" x-text="metrics.queue_pending || '0'"></p>
+                </div>
+                <div class="text-4xl">📦</div>
+            </div>
+        </div>
+        
+        <!-- Downloaded Today -->
+        <div class="card p-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-gray-400 text-sm">Downloaded Today</p>
+                    <p class="text-3xl font-bold text-green-400" x-text="metrics.downloaded_today || '0'"></p>
+                </div>
+                <div class="text-4xl">⬇️</div>
+            </div>
+        </div>
+        
+        <!-- Active Users -->
+        <div class="card p-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-gray-400 text-sm">Active Users</p>
+                    <p class="text-3xl font-bold text-purple-400" x-text="metrics.active_users || '0'"></p>
+                </div>
+                <div class="text-4xl">👥</div>
+            </div>
+        </div>
+        
+        <!-- MB Downloaded -->
+        <div class="card p-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-gray-400 text-sm">MB Downloaded</p>
+                    <p class="text-3xl font-bold text-orange-400" x-text="(metrics.mb_downloaded_today || 0).toFixed(1) + ' MB'"></p>
+                </div>
+                <div class="text-4xl">💾</div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Service Status -->
+    <div class="card p-6">
+        <h2 class="text-xl font-bold text-white mb-4">Services Status</h2>
+        <div class="space-y-3">
+            <template x-for="service in services" :key="service.id">
+                <div class="flex items-center justify-between p-4 bg-gray-800 rounded border border-gray-700">
+                    <div class="flex-1">
+                        <p class="font-semibold text-white" x-text="service.instance_name"></p>
+                        <p class="text-sm text-gray-400" x-text="service.service_type"></p>
+                    </div>
+                    
+                    <div class="flex items-center space-x-4">
+                        <span :class="service.is_alive ? 'text-green-400' : 'text-red-400'" 
+                              x-text="service.is_alive ? '🟢 Running' : '🔴 Down'"></span>
+                        
+                        <button @click="stopService(service.id)" 
+                                class="px-3 py-1 bg-red-600 hover:bg-red-700 text-white text-sm rounded transition">
+                            Stop
+                        </button>
+                        <button @click="restartService(service.id)" 
+                                class="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded transition">
+                            Restart
+                        </button>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </div>
+    
+    <!-- Activity Chart -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="card p-6">
+            <h2 class="text-xl font-bold text-white mb-4">Activity</h2>
+            <canvas id="activityChart" height="100"></canvas>
+        </div>
+        
+        <!-- Queue Status -->
+        <div class="card p-6">
+            <h2 class="text-xl font-bold text-white mb-4">Queue Status</h2>
+            <div class="space-y-4">
+                <div>
+                    <div class="flex justify-between mb-2">
+                        <span class="text-sm text-gray-400">Pending</span>
+                        <span class="text-sm font-semibold" x-text="metrics.queue_pending || '0'"></span>
+                    </div>
+                    <div class="w-full bg-gray-700 rounded-full h-2">
+                        <div class="bg-blue-500 h-2 rounded-full" :style="'width: ' + ((metrics.queue_pending || 0) / 100 * 100) + '%'"></div>
+                    </div>
+                </div>
+                
+                <div>
+                    <div class="flex justify-between mb-2">
+                        <span class="text-sm text-gray-400">Failed</span>
+                        <span class="text-sm font-semibold" x-text="metrics.queue_failed || '0'"></span>
+                    </div>
+                    <div class="w-full bg-gray-700 rounded-full h-2">
+                        <div class="bg-red-500 h-2 rounded-full" :style="'width: ' + ((metrics.queue_failed || 0) / 100 * 100) + '%'"></div>
+                    </div>
+                </div>
+                
+                <div>
+                    <div class="flex justify-between mb-2">
+                        <span class="text-sm text-gray-400">No Telegram</span>
+                        <span class="text-sm font-semibold" x-text="metrics.queue_no_telegram || '0'"></span>
+                    </div>
+                    <div class="w-full bg-gray-700 rounded-full h-2">
+                        <div class="bg-yellow-500 h-2 rounded-full" :style="'width: ' + ((metrics.queue_no_telegram || 0) / 100 * 100) + '%'"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .card {
+        background-color: #1f2937;
+        border: 1px solid #374151;
+        border-radius: 0.5rem;
+    }
+</style>
+
+<script>
+    function dashboard() {
+        return {
+            metrics: {},
+            services: [],
+            chart: null,
+            
+            async init() {
+                await this.loadMetrics();
+                await this.loadServices();
+                this.initChart();
+                setInterval(() => this.loadMetrics(), 30000);
+                setInterval(() => this.loadServices(), 30000);
+            },
+            
+            async loadMetrics() {
+                try {
+                    const token = localStorage.getItem('access_token');
+                    const response = await fetch('/api/metrics/summary', {
+                        headers: {
+                            'Authorization': 'Bearer ' + token
+                        }
+                    });
+                    
+                    if (response.ok) {
+                        this.metrics = await response.json();
+                    }
+                } catch (err) {
+                    console.error('Error loading metrics:', err);
+                }
+            },
+            
+            async loadServices() {
+                try {
+                    const token = localStorage.getItem('access_token');
+                    const response = await fetch('/api/metrics/services/status', {
+                        headers: {
+                            'Authorization': 'Bearer ' + token
+                        }
+                    });
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        this.services = data.services || [];
+                    }
+                } catch (err) {
+                    console.error('Error loading services:', err);
+                }
+            },
+            
+            async stopService(serviceId) {
+                try {
+                    const token = localStorage.getItem('access_token');
+                    await fetch(`/api/services/${serviceId}/stop`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': 'Bearer ' + token
+                        }
+                    });
+                    await this.loadServices();
+                } catch (err) {
+                    console.error('Error stopping service:', err);
+                }
+            },
+            
+            async restartService(serviceId) {
+                try {
+                    const token = localStorage.getItem('access_token');
+                    await fetch(`/api/services/${serviceId}/restart`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': 'Bearer ' + token
+                        }
+                    });
+                    await this.loadServices();
+                } catch (err) {
+                    console.error('Error restarting service:', err);
+                }
+            },
+            
+            initChart() {
+                const ctx = document.getElementById('activityChart')?.getContext('2d');
+                if (ctx) {
+                    this.chart = new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00', '24:00'],
+                            datasets: [{
+                                label: 'Downloads',
+                                data: [12, 19, 3, 5, 2, 3, 15],
+                                borderColor: '#3b82f6',
+                                backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                                borderWidth: 2,
+                                fill: true,
+                                tension: 0.4
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: true,
+                            plugins: {
+                                legend: {
+                                    labels: { color: '#e5e7eb' }
+                                }
+                            },
+                            scales: {
+                                y: {
+                                    ticks: { color: '#9ca3af' },
+                                    grid: { color: '#374151' }
+                                },
+                                x: {
+                                    ticks: { color: '#9ca3af' },
+                                    grid: { color: '#374151' }
+                                }
+                            }
+                        }
+                    });
+                }
+            }
+        }
+    }
+</script>
+{% endblock %}

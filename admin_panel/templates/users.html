@@ -1,0 +1,270 @@
+{% extends "base.html" %}
+
+{% block title %}Users - INSTATG Admin Panel{% endblock %}
+
+{% block content %}
+<div x-data="usersPage()" x-init="init()" class="space-y-6">
+    <!-- Page Title -->
+    <div class="flex items-center justify-between">
+        <h1 class="text-3xl font-bold text-white">Users Management</h1>
+        <button @click="bulkGrantSubscription()" 
+                class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded">
+            Grant Subscription to All
+        </button>
+    </div>
+    
+    <!-- Filters -->
+    <div class="card p-6 space-y-4">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-2">Search</label>
+                <input type="text" x-model="search" @keyup="loadUsers()"
+                       class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white focus:outline-none focus:border-blue-500"
+                       placeholder="Instagram or Telegram username">
+            </div>
+            
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-2">Subscription Status</label>
+                <select x-model="statusFilter" @change="loadUsers()"
+                        class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white focus:outline-none focus:border-blue-500">
+                    <option value="">All</option>
+                    <option value="active">Active</option>
+                    <option value="free_trial">Free Trial</option>
+                    <option value="expired">Expired</option>
+                    <option value="blocked">Blocked</option>
+                </select>
+            </div>
+            
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-2">Language</label>
+                <select x-model="languageFilter" @change="loadUsers()"
+                        class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white focus:outline-none focus:border-blue-500">
+                    <option value="">All</option>
+                    <option value="ru">Русский</option>
+                    <option value="uz">Ўзбек</option>
+                    <option value="en">English</option>
+                </select>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Users Table -->
+    <div class="card overflow-hidden">
+        <table class="w-full text-sm">
+            <thead class="bg-gray-800 border-b border-gray-700">
+                <tr>
+                    <th class="text-left py-3 px-4 text-gray-300">Instagram</th>
+                    <th class="text-left py-3 px-4 text-gray-300">Telegram</th>
+                    <th class="text-left py-3 px-4 text-gray-300">Language</th>
+                    <th class="text-left py-3 px-4 text-gray-300">Status</th>
+                    <th class="text-left py-3 px-4 text-gray-300">Until</th>
+                    <th class="text-left py-3 px-4 text-gray-300">Limit</th>
+                    <th class="text-left py-3 px-4 text-gray-300">Actions</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-700">
+                <template x-for="user in users" :key="user.id">
+                    <tr class="hover:bg-gray-800/50">
+                        <td class="py-3 px-4">
+                            <a :href="'/users/' + user.id" class="text-blue-400 hover:text-blue-300">
+                                <span x-text="user.instagram_id"></span>
+                            </a>
+                        </td>
+                        <td class="py-3 px-4 text-gray-400">
+                            <span x-text="user.telegram_username || user.telegram_chat_id || 'N/A'"></span>
+                        </td>
+                        <td class="py-3 px-4">
+                            <span x-text="user.language.toUpperCase()"></span>
+                        </td>
+                        <td class="py-3 px-4">
+                            <span :class="user.subscription_status === 'active' ? 'text-green-400' : user.subscription_status === 'blocked' ? 'text-red-400' : 'text-yellow-400'"
+                                  x-text="user.subscription_status"></span>
+                        </td>
+                        <td class="py-3 px-4 text-xs text-gray-400">
+                            <span x-text="user.subscription_until ? new Date(user.subscription_until).toLocaleDateString() : 'N/A'"></span>
+                        </td>
+                        <td class="py-3 px-4">
+                            <span x-text="user.daily_downloads_today + ' / ' + user.daily_limit"></span>
+                        </td>
+                        <td class="py-3 px-4">
+                            <div class="space-x-2 flex">
+                                <button @click="grantSubscription(user.id)" 
+                                        class="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded">
+                                    +Sub
+                                </button>
+                                <button @click="changeLimit(user.id)" 
+                                        class="px-2 py-1 bg-purple-600 hover:bg-purple-700 text-white text-xs rounded">
+                                    Limit
+                                </button>
+                                <button @click="toggleBlock(user.id, user.subscription_status)" 
+                                        :class="user.subscription_status === 'blocked' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'"
+                                        class="text-white text-xs rounded px-2 py-1">
+                                    <span x-show="user.subscription_status === 'blocked'">Unblock</span>
+                                    <span x-show="user.subscription_status !== 'blocked'">Block</span>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                </template>
+            </tbody>
+        </table>
+    </div>
+    
+    <!-- Pagination -->
+    <div class="flex items-center justify-between">
+        <span class="text-gray-400" x-text="'Total: ' + totalUsers + ' users'"></span>
+        <div class="space-x-2">
+            <button @click="previousPage()" :disabled="page === 1"
+                    class="px-3 py-1 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 text-white rounded text-sm">
+                Previous
+            </button>
+            <span class="text-gray-400" x-text="'Page ' + page"></span>
+            <button @click="nextPage()" 
+                    class="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white rounded text-sm">
+                Next
+            </button>
+        </div>
+    </div>
+</div>
+
+<style>
+    .card {
+        background-color: #1f2937;
+        border: 1px solid #374151;
+        border-radius: 0.5rem;
+    }
+</style>
+
+<script>
+    function usersPage() {
+        return {
+            users: [],
+            totalUsers: 0,
+            page: 1,
+            limit: 50,
+            search: '',
+            statusFilter: '',
+            languageFilter: '',
+            
+            async init() {
+                await this.loadUsers();
+            },
+            
+            async loadUsers() {
+                try {
+                    const token = localStorage.getItem('access_token');
+                    const params = new URLSearchParams({
+                        skip: (this.page - 1) * this.limit,
+                        limit: this.limit,
+                        search: this.search,
+                        status: this.statusFilter,
+                        language: this.languageFilter
+                    });
+                    
+                    const response = await fetch(`/api/users/?${params}`, {
+                        headers: { 'Authorization': 'Bearer ' + token }
+                    });
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        this.users = data.items;
+                        this.totalUsers = data.total;
+                    }
+                } catch (err) {
+                    console.error('Error loading users:', err);
+                }
+            },
+            
+            async grantSubscription(userId) {
+                const days = prompt('Grant subscription for how many days?', '30');
+                if (days) {
+                    try {
+                        const token = localStorage.getItem('access_token');
+                        const response = await fetch(`/api/users/${userId}/subscription?days=${days}`, {
+                            method: 'POST',
+                            headers: { 'Authorization': 'Bearer ' + token }
+                        });
+                        if (response.ok) {
+                            alert('Subscription granted');
+                            await this.loadUsers();
+                        }
+                    } catch (err) {
+                        console.error('Error:', err);
+                    }
+                }
+            },
+            
+            async changeLimit(userId) {
+                const newLimit = prompt('New daily limit:', '10');
+                if (newLimit) {
+                    try {
+                        const token = localStorage.getItem('access_token');
+                        const response = await fetch(`/api/users/${userId}/daily-limit?new_limit=${newLimit}`, {
+                            method: 'PATCH',
+                            headers: { 'Authorization': 'Bearer ' + token }
+                        });
+                        if (response.ok) {
+                            alert('Limit updated');
+                            await this.loadUsers();
+                        }
+                    } catch (err) {
+                        console.error('Error:', err);
+                    }
+                }
+            },
+            
+            async toggleBlock(userId, status) {
+                const action = status === 'blocked' ? 'unblock' : 'block';
+                if (confirm(`Are you sure you want to ${action} this user?`)) {
+                    try {
+                        const token = localStorage.getItem('access_token');
+                        const endpoint = status === 'blocked' ? `/api/users/${userId}/unblock` : `/api/users/${userId}/block`;
+                        const response = await fetch(endpoint, {
+                            method: 'POST',
+                            headers: { 'Authorization': 'Bearer ' + token }
+                        });
+                        if (response.ok) {
+                            alert(`User ${action}ed`);
+                            await this.loadUsers();
+                        }
+                    } catch (err) {
+                        console.error('Error:', err);
+                    }
+                }
+            },
+            
+            async bulkGrantSubscription() {
+                const days = prompt('Grant subscription to ALL users for how many days?', '30');
+                if (days) {
+                    try {
+                        const token = localStorage.getItem('access_token');
+                        const response = await fetch(`/api/users/subscription/bulk?days=${days}&all_users=true`, {
+                            method: 'POST',
+                            headers: { 'Authorization': 'Bearer ' + token }
+                        });
+                        if (response.ok) {
+                            const data = await response.json();
+                            alert(`Subscription granted to ${data.updated_count} users`);
+                            await this.loadUsers();
+                        }
+                    } catch (err) {
+                        console.error('Error:', err);
+                    }
+                }
+            },
+            
+            nextPage() {
+                this.page++;
+                this.loadUsers();
+            },
+            
+            previousPage() {
+                if (this.page > 1) {
+                    this.page--;
+                    this.loadUsers();
+                }
+            }
+        }
+    }
+</script>
+{% endblock %}

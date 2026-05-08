@@ -1,0 +1,8 @@
+.aider*
+.env
+.venv/
+__pycache__/
+*.py[cod]
+temp/
+logs/
+gpt-4o-mini

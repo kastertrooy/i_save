@@ -1,0 +1,17 @@
+{
+  "welcome": "Xush kelibsiz!",
+  "bind_success": "Hisob muvaffaqiyatli bog'landi!",
+  "bind_invalid": "Noto'g'ri bog'lash tokeni.",
+  "language_select": "Tilni tanlang:",
+  "status_active": "Holat: Faol obuna",
+  "status_trial": "Holat: Sinov davri",
+  "status_expired": "Holat: Obuna muddati tugagan",
+  "status_blocked": "Holat: Hisob bloklangan",
+  "story_expired": "Hikoya muddati tugagan",
+  "limit_reached": "Kunlik chegara yetdi",
+  "subscription_remind": "Sizning obunangiz 3 kundan keyin tugaydi",
+  "subscription_expired": "Sizning obunangiz tugagan",
+  "account_changed": "Hisob o'zgartirildi",
+  "file_too_large": "Fayl juda katta",
+  "help": "Yordam"
+}

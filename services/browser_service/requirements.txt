@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+playwright
+sqlalchemy[asyncio]
+asyncpg
+alembic
+cryptography
+httpx
+pydantic-settings

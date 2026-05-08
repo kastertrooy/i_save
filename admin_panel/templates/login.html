@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - INSTATG Admin Panel</title>
+    
+    <!-- TailwindCSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+        }
+    </script>
+    
+    <!-- Alpine.js -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    
+    <style>
+        body {
+            background-color: #0a0c10;
+            color: #e5e7eb;
+        }
+    </style>
+</head>
+<body class="bg-dark-950 text-gray-200 flex items-center justify-center min-h-screen" 
+      x-data="loginForm()">
+    
+    <div class="w-full max-w-md">
+        <!-- Logo -->
+        <div class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-blue-400 mb-2">INSTATG</h1>
+            <p class="text-gray-400">Admin Panel</p>
+        </div>
+        
+        <!-- Login Card -->
+        <div class="bg-gray-900 border border-gray-700 rounded-lg p-8 shadow-xl">
+            <!-- Error Message -->
+            <div x-show="error" 
+                 class="mb-4 p-4 bg-red-900/30 border border-red-700 rounded text-red-200 text-sm"
+                 x-transition>
+                <span x-text="error"></span>
+            </div>
+            
+            <!-- Block Timer -->
+            <div x-show="isBlocked" 
+                 class="mb-4 p-4 bg-yellow-900/30 border border-yellow-700 rounded text-yellow-200 text-sm"
+                 x-transition>
+                <div class="font-semibold mb-2">Account Temporarily Blocked</div>
+                <div class="text-center">
+                    <div class="text-2xl font-mono mb-2" x-text="formatTime(blockTimeRemaining)"></div>
+                    <div class="text-xs text-yellow-300">Try again in <span x-text="blockTimeRemaining"></span> seconds</div>
+                </div>
+            </div>
+            
+            <!-- Attempts Remaining -->
+            <div x-show="attemptsRemaining > 0 && attemptsRemaining <= 2 && !isBlocked" 
+                 class="mb-4 p-3 bg-orange-900/30 border border-orange-700 rounded text-orange-200 text-sm"
+                 x-transition>
+                ⚠️ <span x-text="attemptsRemaining"></span> attempt(s) remaining before account lock
+            </div>
+            
+            <!-- Login Form -->
+            <form @submit.prevent="submitLogin()" x-show="!isBlocked">
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-300 mb-2">Username</label>
+                    <input type="text" 
+                           x-model="username" 
+                           :disabled="isSubmitting"
+                           class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded text-white focus:outline-none focus:border-blue-500 disabled:opacity-50"
+                           placeholder="Enter username">
+                </div>
+                
+                <div class="mb-6">
+                    <label class="block text-sm font-medium text-gray-300 mb-2">Password</label>
+                    <input type="password" 
+                           x-model="password" 
+                           :disabled="isSubmitting"
+                           class="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded text-white focus:outline-none focus:border-blue-500 disabled:opacity-50"
+                           placeholder="Enter password"
+                           @keyup.enter="submitLogin()">
+                </div>
+                
+                <button type="submit" 
+                        :disabled="isSubmitting"
+                        class="w-full py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white font-semibold rounded transition">
+                    <span x-show="!isSubmitting">Sign In</span>
+                    <span x-show="isSubmitting">Logging in...</span>
+                </button>
+            </form>
+            
+            <!-- Info -->
+            <div class="mt-6 text-xs text-gray-400 text-center">
+                <p>This is a restricted admin panel.</p>
+                <p>Only authorized staff can access.</p>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        localStorage.removeItem('access_token');
+
+        function loginForm() {
+            return {
+                username: '',
+                password: '',
+                error: '',
+                isSubmitting: false,
+                isBlocked: false,
+                blockTimeRemaining: 0,
+                attemptsRemaining: 3,
+                
+                async submitLogin() {
+                    this.error = '';
+                    this.isSubmitting = true;
+                    
+                    try {
+                        const response = await fetch('/auth/login', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                username: this.username,
+                                password: this.password
+                            })
+                        });
+                        
+                        if (response.status === 429) {
+                            const data = await response.json();
+                            this.isBlocked = true;
+                            this.blockTimeRemaining = 60;
+                            this.startBlockTimer();
+                            this.error = data.detail || 'Too many attempts. Please try again later.';
+                        } else if (response.ok) {
+                            const data = await response.json();
+                            localStorage.setItem('access_token', data.access_token);
+                            window.location.href = '/dashboard';
+                        } else if (response.status === 401) {
+                            const data = await response.json();
+                            this.error = data.detail || 'Invalid credentials';
+                            this.attemptsRemaining = Math.max(0, this.attemptsRemaining - 1);
+                        } else {
+                            this.error = 'An error occurred. Please try again.';
+                        }
+                    } catch (err) {
+                        this.error = 'Network error. Please try again.';
+                        console.error('Login error:', err);
+                    } finally {
+                        this.isSubmitting = false;
+                    }
+                },
+                
+                startBlockTimer() {
+                    const interval = setInterval(() => {
+                        this.blockTimeRemaining--;
+                        if (this.blockTimeRemaining <= 0) {
+                            clearInterval(interval);
+                            this.isBlocked = false;
+                            this.blockTimeRemaining = 0;
+                        }
+                    }, 1000);
+                },
+                
+                formatTime(seconds) {
+                    const mins = Math.floor(seconds / 60);
+                    const secs = seconds % 60;
+                    return `${mins}:${secs.toString().padStart(2, '0')}`;
+                }
+            }
+        }
+    </script>
+</body>
+</html>

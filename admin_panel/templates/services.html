@@ -1,0 +1,385 @@
+{% extends "base.html" %}
+
+{% block title %}Services - INSTATG Admin Panel{% endblock %}
+
+{% block content %}
+<div x-data="servicesPage()" x-init="init()" class="space-y-6">
+    <!-- Page Title -->
+    <h1 class="text-3xl font-bold text-white">Services Management</h1>
+    
+    <!-- Services List -->
+    <div class="card p-6">
+        <h2 class="text-xl font-bold text-white mb-4">Running Services</h2>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead class="border-b border-gray-700">
+                    <tr>
+                        <th class="text-left py-3 px-4 text-gray-300">Instance Name</th>
+                        <th class="text-left py-3 px-4 text-gray-300">Type</th>
+                        <th class="text-left py-3 px-4 text-gray-300">Status</th>
+                        <th class="text-left py-3 px-4 text-gray-300">Last Heartbeat</th>
+                        <th class="text-left py-3 px-4 text-gray-300">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-700">
+                    <template x-for="service in services" :key="service.id">
+                        <tr class="hover:bg-gray-800/50">
+                            <td class="py-3 px-4 font-semibold" x-text="service.instance_name"></td>
+                            <td class="py-3 px-4" x-text="service.service_type"></td>
+                            <td class="py-3 px-4">
+                                <span :class="service.status === 'running' ? 'text-green-400' : 'text-red-400'"
+                                      x-text="service.status"></span>
+                            </td>
+                            <td class="py-3 px-4 text-xs text-gray-400" 
+                                x-text="service.last_heartbeat_at ? new Date(service.last_heartbeat_at).toLocaleString() : 'N/A'"></td>
+                            <td class="py-3 px-4 space-x-2">
+                                <button @click="stopService(service.id)" 
+                                        class="px-2 py-1 bg-red-600 hover:bg-red-700 text-white text-xs rounded">
+                                    Stop
+                                </button>
+                                <button @click="restartService(service.id)" 
+                                        class="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded">
+                                    Restart
+                                </button>
+                                <button @click="openLogs(service.id)" 
+                                        class="px-2 py-1 bg-gray-600 hover:bg-gray-700 text-white text-xs rounded">
+                                    Logs
+                                </button>
+                            </td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <!-- Start Watcher Form -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="card p-6">
+            <h3 class="text-lg font-bold text-white mb-4">Start Watcher</h3>
+            <form @submit.prevent="startWatcher()" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-2">Instagram Account</label>
+                    <select x-model="watcherForm.account_id" 
+                            class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white focus:outline-none focus:border-blue-500">
+                        <option value="">Select Account</option>
+                        <template x-for="account in accounts" :key="account.id">
+                            <option :value="account.id" x-text="account.username"></option>
+                        </template>
+                    </select>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-2">Instance Name</label>
+                    <input type="text" x-model="watcherForm.instance_name"
+                           class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white focus:outline-none focus:border-blue-500"
+                           placeholder="e.g., watcher-1">
+                </div>
+                
+                <button type="submit" :disabled="watcherSubmitting"
+                        class="w-full py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white font-semibold rounded transition">
+                    <span x-show="!watcherSubmitting">Start Watcher</span>
+                    <span x-show="watcherSubmitting">Starting...</span>
+                </button>
+            </form>
+        </div>
+        
+        <!-- Start Downloader Form -->
+        <div class="card p-6">
+            <h3 class="text-lg font-bold text-white mb-4">Start Downloader</h3>
+            <form @submit.prevent="startDownloader()" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-2">Storage Group</label>
+                    <select x-model="downloaderForm.storage_group_id" 
+                            class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white focus:outline-none focus:border-blue-500">
+                        <option value="">Select Group</option>
+                        <template x-for="group in groups" :key="group.id">
+                            <option :value="group.id" x-text="group.name"></option>
+                        </template>
+                    </select>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-2">Start Position</label>
+                    <select x-model="downloaderForm.position" 
+                            class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white focus:outline-none focus:border-blue-500">
+                        <option value="0">Beginning</option>
+                        <option value="500">Middle (500)</option>
+                        <option value="1000">End (1000)</option>
+                    </select>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-2">Instance Name</label>
+                    <input type="text" x-model="downloaderForm.instance_name"
+                           class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white focus:outline-none focus:border-blue-500"
+                           placeholder="e.g., downloader-1">
+                </div>
+                
+                <button type="submit" :disabled="downloaderSubmitting"
+                        class="w-full py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white font-semibold rounded transition">
+                    <span x-show="!downloaderSubmitting">Start Downloader</span>
+                    <span x-show="downloaderSubmitting">Starting...</span>
+                </button>
+            </form>
+        </div>
+    </div>
+    
+    <!-- Auto-scaling Settings -->
+    <div class="card p-6">
+        <h3 class="text-lg font-bold text-white mb-4">Auto-Scaling Settings</h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- Queue Trigger -->
+            <div class="space-y-4">
+                <div class="flex items-center space-x-3">
+                    <input type="checkbox" x-model="autoScale.queue_enabled" class="w-4 h-4">
+                    <label class="text-white font-medium">Enable Queue-based Scaling</label>
+                </div>
+                
+                <div x-show="autoScale.queue_enabled">
+                    <label class="block text-sm font-medium text-gray-300 mb-2">Queue Size Threshold</label>
+                    <input type="number" x-model="autoScale.queue_threshold" min="0"
+                           class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white focus:outline-none focus:border-blue-500"
+                           placeholder="e.g., 100">
+                    <p class="text-xs text-gray-400 mt-2">Start new downloader when queue exceeds this size</p>
+                </div>
+            </div>
+            
+            <!-- Time Trigger -->
+            <div class="space-y-4">
+                <div class="flex items-center space-x-3">
+                    <input type="checkbox" x-model="autoScale.time_enabled" class="w-4 h-4">
+                    <label class="text-white font-medium">Enable Time-based Scaling</label>
+                </div>
+                
+                <div x-show="autoScale.time_enabled">
+                    <label class="block text-sm font-medium text-gray-300 mb-2">Trigger Time</label>
+                    <input type="time" x-model="autoScale.trigger_time"
+                           class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white focus:outline-none focus:border-blue-500">
+                    <p class="text-xs text-gray-400 mt-2">Start downloader at this time daily</p>
+                </div>
+            </div>
+        </div>
+        
+        <button @click="saveAutoScale()" 
+                class="mt-6 px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded">
+            Save Settings
+        </button>
+    </div>
+    
+    <!-- Logs Modal -->
+    <div x-show="showLogsModal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" @click.self="showLogsModal = false">
+        <div class="bg-gray-900 rounded-lg p-6 max-w-2xl w-full mx-4 max-h-96 overflow-y-auto">
+            <h3 class="text-lg font-bold text-white mb-4">Service Logs</h3>
+            <pre class="bg-black text-green-400 text-xs p-4 rounded overflow-x-auto">
+<template x-for="line in serviceLogs" :key="line">
+    <div x-text="line"></div>
+</template>
+            </pre>
+            <button @click="showLogsModal = false" 
+                    class="mt-4 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded">
+                Close
+            </button>
+        </div>
+    </div>
+</div>
+
+<style>
+    .card {
+        background-color: #1f2937;
+        border: 1px solid #374151;
+        border-radius: 0.5rem;
+    }
+</style>
+
+<script>
+    function servicesPage() {
+        return {
+            services: [],
+            accounts: [],
+            groups: [],
+            showLogsModal: false,
+            serviceLogs: [],
+            
+            watcherForm: {
+                account_id: '',
+                instance_name: ''
+            },
+            watcherSubmitting: false,
+            
+            downloaderForm: {
+                storage_group_id: '',
+                position: '0',
+                instance_name: ''
+            },
+            downloaderSubmitting: false,
+            
+            autoScale: {
+                queue_enabled: false,
+                queue_threshold: 100,
+                time_enabled: false,
+                trigger_time: '09:00'
+            },
+            
+            async init() {
+                await this.loadServices();
+                await this.loadAccounts();
+                await this.loadGroups();
+            },
+            
+            async loadServices() {
+                try {
+                    const token = localStorage.getItem('access_token');
+                    const response = await fetch('/api/services/', {
+                        headers: { 'Authorization': 'Bearer ' + token }
+                    });
+                    if (response.ok) {
+                        this.services = await response.json();
+                    }
+                } catch (err) {
+                    console.error('Error loading services:', err);
+                }
+            },
+            
+            async loadAccounts() {
+                try {
+                    const token = localStorage.getItem('access_token');
+                    const response = await fetch('/api/accounts/', {
+                        headers: { 'Authorization': 'Bearer ' + token }
+                    });
+                    if (response.ok) {
+                        this.accounts = await response.json();
+                    }
+                } catch (err) {
+                    console.error('Error loading accounts:', err);
+                }
+            },
+            
+            async loadGroups() {
+                try {
+                    const token = localStorage.getItem('access_token');
+                    const response = await fetch('/api/groups/', {
+                        headers: { 'Authorization': 'Bearer ' + token }
+                    });
+                    if (response.ok) {
+                        this.groups = await response.json();
+                    }
+                } catch (err) {
+                    console.error('Error loading groups:', err);
+                }
+            },
+            
+            async startWatcher() {
+                if (!this.watcherForm.account_id || !this.watcherForm.instance_name) {
+                    alert('Please fill all fields');
+                    return;
+                }
+                
+                this.watcherSubmitting = true;
+                try {
+                    const token = localStorage.getItem('access_token');
+                    const params = new URLSearchParams({
+                        account_id: this.watcherForm.account_id,
+                        instance_name: this.watcherForm.instance_name
+                    });
+                    const response = await fetch(`/api/services/watcher/start?${params}`, {
+                        method: 'POST',
+                        headers: { 'Authorization': 'Bearer ' + token }
+                    });
+                    if (response.ok) {
+                        alert('Watcher started successfully');
+                        this.watcherForm = { account_id: '', instance_name: '' };
+                        await this.loadServices();
+                    } else {
+                        alert('Error starting watcher');
+                    }
+                } catch (err) {
+                    console.error('Error:', err);
+                } finally {
+                    this.watcherSubmitting = false;
+                }
+            },
+            
+            async startDownloader() {
+                if (!this.downloaderForm.storage_group_id || !this.downloaderForm.instance_name) {
+                    alert('Please fill all fields');
+                    return;
+                }
+                
+                this.downloaderSubmitting = true;
+                try {
+                    const token = localStorage.getItem('access_token');
+                    const params = new URLSearchParams({
+                        position: this.downloaderForm.position,
+                        storage_group_id: this.downloaderForm.storage_group_id,
+                        instance_name: this.downloaderForm.instance_name
+                    });
+                    const response = await fetch(`/api/services/downloader/start?${params}`, {
+                        method: 'POST',
+                        headers: { 'Authorization': 'Bearer ' + token }
+                    });
+                    if (response.ok) {
+                        alert('Downloader started successfully');
+                        this.downloaderForm = { storage_group_id: '', position: '0', instance_name: '' };
+                        await this.loadServices();
+                    } else {
+                        alert('Error starting downloader');
+                    }
+                } catch (err) {
+                    console.error('Error:', err);
+                } finally {
+                    this.downloaderSubmitting = false;
+                }
+            },
+            
+            async stopService(serviceId) {
+                if (confirm('Stop this service?')) {
+                    try {
+                        const token = localStorage.getItem('access_token');
+                        await fetch(`/api/services/${serviceId}/stop`, {
+                            method: 'POST',
+                            headers: { 'Authorization': 'Bearer ' + token }
+                        });
+                        await this.loadServices();
+                    } catch (err) {
+                        console.error('Error:', err);
+                    }
+                }
+            },
+            
+            async restartService(serviceId) {
+                try {
+                    const token = localStorage.getItem('access_token');
+                    await fetch(`/api/services/${serviceId}/restart`, {
+                        method: 'POST',
+                        headers: { 'Authorization': 'Bearer ' + token }
+                    });
+                    await this.loadServices();
+                } catch (err) {
+                    console.error('Error:', err);
+                }
+            },
+            
+            async openLogs(serviceId) {
+                try {
+                    const token = localStorage.getItem('access_token');
+                    const response = await fetch(`/api/services/${serviceId}/logs`, {
+                        headers: { 'Authorization': 'Bearer ' + token }
+                    });
+                    if (response.ok) {
+                        const data = await response.json();
+                        this.serviceLogs = data.logs || [];
+                        this.showLogsModal = true;
+                    }
+                } catch (err) {
+                    console.error('Error:', err);
+                }
+            },
+            
+            saveAutoScale() {
+                alert('Auto-scaling settings saved');
+            }
+        }
+    }
+</script>
+{% endblock %}

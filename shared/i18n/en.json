@@ -1,0 +1,17 @@
+{
+  "welcome": "Welcome!",
+  "bind_success": "Account successfully bound!",
+  "bind_invalid": "Invalid bind token.",
+  "language_select": "Select language:",
+  "status_active": "Status: Active subscription",
+  "status_trial": "Status: Trial period",
+  "status_expired": "Status: Subscription expired",
+  "status_blocked": "Status: Account blocked",
+  "story_expired": "Story expired",
+  "limit_reached": "Daily limit reached",
+  "subscription_remind": "Your subscription expires in 3 days",
+  "subscription_expired": "Your subscription has expired",
+  "account_changed": "Account changed",
+  "file_too_large": "File too large",
+  "help": "Help"
+}

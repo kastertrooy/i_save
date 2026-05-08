@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}INSTATG Admin Panel{% endblock %}</title>
+    
+    <!-- TailwindCSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        dark: {
+                            50: '#f9fafb',
+                            100: '#f3f4f6',
+                            200: '#e5e7eb',
+                            300: '#d1d5db',
+                            400: '#9ca3af',
+                            500: '#6b7280',
+                            600: '#4b5563',
+                            700: '#374151',
+                            800: '#1f2937',
+                            900: '#111827',
+                            950: '#0a0c10',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <!-- Alpine.js -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    
+    <style>
+        body {
+            background-color: #0a0c10;
+            color: #e5e7eb;
+        }
+        .sidebar {
+            background-color: #111827;
+            border-right: 1px solid #1f2937;
+        }
+        .topbar {
+            background-color: #111827;
+            border-bottom: 1px solid #1f2937;
+        }
+        .nav-item {
+            transition: all 0.2s;
+        }
+        .nav-item:hover {
+            background-color: #1f2937;
+        }
+        .nav-item.active {
+            background-color: #374151;
+            border-left: 4px solid #3b82f6;
+            padding-left: calc(1rem - 4px);
+        }
+        .card {
+            background-color: #1f2937;
+            border: 1px solid #374151;
+            border-radius: 0.5rem;
+        }
+        .btn-primary {
+            background-color: #3b82f6;
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 0.375rem;
+            transition: all 0.2s;
+        }
+        .btn-primary:hover {
+            background-color: #2563eb;
+        }
+        .btn-secondary {
+            background-color: #4b5563;
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 0.375rem;
+            transition: all 0.2s;
+        }
+        .btn-secondary:hover {
+            background-color: #6b7280;
+        }
+    </style>
+    
+    {% block extra_head %}{% endblock %}
+</head>
+<body class="bg-dark-950 text-gray-200" x-data="{ sidebarOpen: true, notificationsOpen: false }">
+    <div class="flex h-screen overflow-hidden">
+        <!-- Sidebar -->
+        <div class="sidebar w-64 flex-shrink-0 overflow-y-auto hidden md:block">
+            <div class="p-6">
+                <h1 class="text-2xl font-bold text-blue-400">INSTATG</h1>
+                <p class="text-sm text-gray-400">Admin Panel</p>
+            </div>
+            
+            <nav class="mt-8 space-y-1 px-4">
+                <a href="/dashboard" class="nav-item block px-4 py-2 rounded {% if request.url.path == '/dashboard' %}active{% endif %}">
+                    📊 Dashboard
+                </a>
+                <a href="/users" class="nav-item block px-4 py-2 rounded {% if request.url.path.startswith('/users') %}active{% endif %}">
+                    👥 Users
+                </a>
+                <a href="/accounts" class="nav-item block px-4 py-2 rounded {% if request.url.path.startswith('/accounts') %}active{% endif %}">
+                    📸 Instagram Accounts
+                </a>
+                <a href="/services" class="nav-item block px-4 py-2 rounded {% if request.url.path.startswith('/services') %}active{% endif %}">
+                    ⚙️ Services
+                </a>
+                <a href="/groups" class="nav-item block px-4 py-2 rounded {% if request.url.path.startswith('/groups') %}active{% endif %}">
+                    📁 Storage Groups
+                </a>
+                <a href="/staff" class="nav-item block px-4 py-2 rounded {% if request.url.path.startswith('/staff') %}active{% endif %}">
+                    👨‍💼 Staff
+                </a>
+                <a href="/settings" class="nav-item block px-4 py-2 rounded {% if request.url.path.startswith('/settings') %}active{% endif %}">
+                    ⚙️ Settings
+                </a>
+                <a href="/logs" class="nav-item block px-4 py-2 rounded {% if request.url.path.startswith('/logs') %}active{% endif %}">
+                    📋 Logs
+                </a>
+            </nav>
+            
+            <div class="mt-auto p-4 border-t border-gray-700">
+                <a href="/auth/logout" class="nav-item block px-4 py-2 rounded text-red-400 hover:bg-red-900/20">
+                    🚪 Logout
+                </a>
+            </div>
+        </div>
+        
+        <!-- Main Content -->
+        <div class="flex-1 flex flex-col overflow-hidden">
+            <!-- Topbar -->
+            <div class="topbar h-16 flex items-center justify-between px-6">
+                <button @click="sidebarOpen = !sidebarOpen" class="md:hidden text-gray-400 hover:text-gray-200">
+                    ☰
+                </button>
+                
+                <div class="flex items-center space-x-4">
+                    <!-- Clock -->
+                    <div class="text-sm text-gray-400" x-data="{ time: '' }" 
+                         @load="setInterval(() => time = new Date().toLocaleTimeString(), 1000)"
+                         x-text="time">
+                    </div>
+                    
+                    <!-- Notifications -->
+                    <button @click="notificationsOpen = !notificationsOpen" 
+                            class="relative p-2 text-gray-400 hover:text-gray-200">
+                        🔔
+                        <span class="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
+                    </button>
+                    
+                    <!-- User Menu -->
+                    <div class="text-sm text-gray-400">
+                        Admin
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Page Content -->
+            <div class="flex-1 overflow-auto bg-dark-950 p-6">
+                {% block content %}{% endblock %}
+            </div>
+        </div>
+    </div>
+</body>
+</html>

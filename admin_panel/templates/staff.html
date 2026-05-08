@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+
+{% block title %}Staff - INSTATG Admin Panel{% endblock %}
+
+{% block content %}
+<div x-data="staffPage()" x-init="init()" class="space-y-6">
+    <div>
+        <h1 class="text-3xl font-bold text-white">Staff</h1>
+        <p class="text-gray-400 mt-1">Manage admin and staff accounts.</p>
+    </div>
+
+    <div class="card p-6">
+        <form @submit.prevent="createStaff()" class="grid grid-cols-1 md:grid-cols-[1fr_1fr_160px_auto] gap-4 items-end">
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-2">Username</label>
+                <input x-model="form.username" required class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white focus:outline-none focus:border-blue-500" placeholder="username">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-2">Password</label>
+                <input x-model="form.password" required type="password" class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white focus:outline-none focus:border-blue-500" placeholder="password">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-2">Role</label>
+                <select x-model="form.role" class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white focus:outline-none focus:border-blue-500">
+                    <option value="staff">Staff</option>
+                    <option value="admin">Admin</option>
+                </select>
+            </div>
+            <button class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded">Add</button>
+        </form>
+    </div>
+
+    <div class="card overflow-hidden">
+        <table class="w-full text-sm">
+            <thead class="bg-gray-800 border-b border-gray-700">
+                <tr>
+                    <th class="text-left py-3 px-4 text-gray-300">Username</th>
+                    <th class="text-left py-3 px-4 text-gray-300">Role</th>
+                    <th class="text-left py-3 px-4 text-gray-300">Actions</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-700">
+                <template x-for="member in staff" :key="member.id">
+                    <tr class="hover:bg-gray-800/50">
+                        <td class="py-3 px-4 font-semibold text-white" x-text="member.username"></td>
+                        <td class="py-3 px-4">
+                            <select x-model="member.role" @change="updateRole(member)" class="px-2 py-1 bg-gray-800 border border-gray-700 rounded text-white">
+                                <option value="staff">Staff</option>
+                                <option value="admin">Admin</option>
+                            </select>
+                        </td>
+                        <td class="py-3 px-4">
+                            <button @click="deleteStaff(member.id)" class="px-2 py-1 bg-red-600 hover:bg-red-700 text-white text-xs rounded">Delete</button>
+                        </td>
+                    </tr>
+                </template>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    function staffPage() {
+        return {
+            staff: [],
+            form: { username: '', password: '', role: 'staff' },
+            async init() {
+                await this.loadStaff();
+            },
+            async loadStaff() {
+                const token = localStorage.getItem('access_token');
+                const response = await fetch('/api/staff/', {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                if (response.ok) {
+                    this.staff = await response.json();
+                }
+            },
+            async createStaff() {
+                const token = localStorage.getItem('access_token');
+                const response = await fetch('/api/staff/', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer ' + token,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(this.form)
+                });
+                if (response.ok) {
+                    this.form = { username: '', password: '', role: 'staff' };
+                    await this.loadStaff();
+                }
+            },
+            async updateRole(member) {
+                const token = localStorage.getItem('access_token');
+                await fetch(`/api/staff/${member.id}/role?role=${encodeURIComponent(member.role)}`, {
+                    method: 'PATCH',
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+            },
+            async deleteStaff(staffId) {
+                if (!confirm('Delete this staff account?')) return;
+                const token = localStorage.getItem('access_token');
+                const response = await fetch(`/api/staff/${staffId}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                if (response.ok) {
+                    await this.loadStaff();
+                }
+            }
+        };
+    }
+</script>
+{% endblock %}

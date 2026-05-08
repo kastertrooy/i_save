@@ -1,0 +1,17 @@
+{
+  "welcome": "Добро пожаловать!",
+  "bind_success": "Аккаунт успешно привязан!",
+  "bind_invalid": "Неверный токен привязки.",
+  "language_select": "Выберите язык:",
+  "status_active": "Статус: Активная подписка",
+  "status_trial": "Статус: Пробный период",
+  "status_expired": "Статус: Подписка истекла",
+  "status_blocked": "Статус: Аккаунт заблокирован",
+  "story_expired": "История истекла",
+  "limit_reached": "Достигнут дневной лимит",
+  "subscription_remind": "Ваша подписка истекает через 3 дня",
+  "subscription_expired": "Ваша подписка истекла",
+  "account_changed": "Аккаунт изменён",
+  "file_too_large": "Файл слишком большой",
+  "help": "Помощь"
+}

@@ -1,0 +1,6 @@
+sqlalchemy[asyncio]
+asyncpg
+cryptography
+httpx
+pydantic-settings
+playwright

@@ -1,0 +1,5 @@
+sqlalchemy[asyncio]
+asyncpg
+aiogram
+cryptography
+pydantic-settings

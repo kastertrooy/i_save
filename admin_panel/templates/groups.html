@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+
+{% block title %}Storage Groups - INSTATG Admin Panel{% endblock %}
+
+{% block content %}
+<div x-data="groupsPage()" x-init="init()" class="space-y-6">
+    <div class="flex items-center justify-between">
+        <div>
+            <h1 class="text-3xl font-bold text-white">Storage Groups</h1>
+            <p class="text-gray-400 mt-1">Manage Telegram groups used for media storage.</p>
+        </div>
+    </div>
+
+    <div class="card p-6">
+        <form @submit.prevent="createGroup()" class="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-4 items-end">
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-2">Name</label>
+                <input x-model="form.name" required class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white focus:outline-none focus:border-blue-500" placeholder="Storage group 1">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-2">Telegram Group ID</label>
+                <input x-model="form.telegram_group_id" required type="number" class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white focus:outline-none focus:border-blue-500" placeholder="-1001234567890">
+            </div>
+            <button class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded">Add Group</button>
+        </form>
+    </div>
+
+    <div class="card overflow-hidden">
+        <table class="w-full text-sm">
+            <thead class="bg-gray-800 border-b border-gray-700">
+                <tr>
+                    <th class="text-left py-3 px-4 text-gray-300">Name</th>
+                    <th class="text-left py-3 px-4 text-gray-300">Telegram Group ID</th>
+                    <th class="text-left py-3 px-4 text-gray-300">Actions</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-700">
+                <template x-for="group in groups" :key="group.id">
+                    <tr class="hover:bg-gray-800/50">
+                        <td class="py-3 px-4 font-semibold text-white" x-text="group.name"></td>
+                        <td class="py-3 px-4 text-gray-300" x-text="group.telegram_group_id"></td>
+                        <td class="py-3 px-4">
+                            <button @click="deleteGroup(group.id)" class="px-2 py-1 bg-red-600 hover:bg-red-700 text-white text-xs rounded">Delete</button>
+                        </td>
+                    </tr>
+                </template>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    function groupsPage() {
+        return {
+            groups: [],
+            form: { name: '', telegram_group_id: '' },
+            async init() {
+                await this.loadGroups();
+            },
+            async loadGroups() {
+                const token = localStorage.getItem('access_token');
+                const response = await fetch('/api/groups/', {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                if (response.ok) {
+                    this.groups = await response.json();
+                }
+            },
+            async createGroup() {
+                const token = localStorage.getItem('access_token');
+                const response = await fetch('/api/groups/', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer ' + token,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        name: this.form.name,
+                        telegram_group_id: Number(this.form.telegram_group_id)
+                    })
+                });
+                if (response.ok) {
+                    this.form = { name: '', telegram_group_id: '' };
+                    await this.loadGroups();
+                }
+            },
+            async deleteGroup(groupId) {
+                if (!confirm('Delete this storage group?')) return;
+                const token = localStorage.getItem('access_token');
+                const response = await fetch(`/api/groups/${groupId}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                if (response.ok) {
+                    await this.loadGroups();
+                }
+            }
+        };
+    }
+</script>
+{% endblock %}

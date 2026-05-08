@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - INSTATG Admin Panel{% endblock %}
+
+{% block content %}
+<div x-data="settingsPage()" x-init="init()" class="space-y-6">
+    <div>
+        <h1 class="text-3xl font-bold text-white">System Settings</h1>
+        <p class="text-gray-400 mt-1">Update system-wide configuration values.</p>
+    </div>
+
+    <div class="grid gap-6 lg:grid-cols-2">
+        <template x-for="setting in settingsList" :key="setting.key">
+            <div class="card p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <div>
+                        <h2 class="text-lg font-semibold text-white" x-text="setting.label"></h2>
+                        <p class="text-sm text-gray-400" x-text="setting.description"></p>
+                    </div>
+                    <button @click="saveSetting(setting.key)" class="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm">
+                        Save
+                    </button>
+                </div>
+                <div>
+                    <template x-if="setting.type === 'boolean'">
+                        <label class="flex items-center space-x-3 text-gray-300">
+                            <input type="checkbox" x-model="values[setting.key]" class="h-4 w-4 text-blue-500" />
+                            <span>Enabled</span>
+                        </label>
+                    </template>
+                    <template x-if="setting.type !== 'boolean'">
+                        <input :type="setting.type" x-model="values[setting.key]"
+                               class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white focus:outline-none focus:border-blue-500"
+                               :placeholder="setting.placeholder" />
+                    </template>
+                </div>
+            </div>
+        </template>
+    </div>
+</div>
+
+<style>
+    .card {
+        background-color: #1f2937;
+        border: 1px solid #374151;
+        border-radius: 0.5rem;
+    }
+</style>
+
+<script>
+    function settingsPage() {
+        return {
+            settingsList: [
+                { key: 'free_trial_days', label: 'Free Trial Days', description: 'Days granted for new trial users.', type: 'number', placeholder: '14' },
+                { key: 'expired_daily_limit', label: 'Expired Daily Limit', description: 'Downloads allowed after trial expiration.', type: 'number', placeholder: '5' },
+                { key: 'queue_alert_threshold', label: 'Queue Alert Threshold', description: 'Queue size that triggers notifications.', type: 'number', placeholder: '100' },
+                { key: 'max_video_size_mb', label: 'Max Video Size (MB)', description: 'Maximum allowed video file size.', type: 'number', placeholder: '50' },
+                { key: 'subscription_remind_days', label: 'Subscription Remind Days', description: 'Days before expiry to remind users.', type: 'number', placeholder: '3' },
+                { key: 'admin_telegram_chat_id', label: 'Admin Telegram Chat ID', description: 'Telegram chat ID for administrative alerts.', type: 'text', placeholder: '123456789' },
+                { key: 'new_account_notify', label: 'New Account Notifications', description: 'Notify admin when a new account is added.', type: 'boolean', placeholder: '' }
+            ],
+            values: {},
+
+            async init() {
+                await this.loadSettings();
+            },
+
+            async loadSettings() {
+                try {
+                    const token = localStorage.getItem('access_token');
+                    const response = await fetch('/api/settings/', {
+                        headers: { 'Authorization': 'Bearer ' + token }
+                    });
+                    if (response.ok) {
+                        const data = await response.json();
+                        data.settings.forEach(setting => {
+                            this.values[setting.key] = this.parseValue(setting.key, setting.value);
+                        });
+                    }
+                } catch (err) {
+                    console.error('Settings load failed', err);
+                }
+            },
+
+            parseValue(key, value) {
+                if (key === 'new_account_notify') {
+                    return value === 'True' || value === 'true' || value === true;
+                }
+                return isNaN(value) ? value : Number(value);
+            },
+
+            async saveSetting(key) {
+                try {
+                    const token = localStorage.getItem('access_token');
+                    let payload = this.values[key];
+                    if (typeof payload === 'boolean') {
+                        payload = payload ? 'true' : 'false';
+                    }
+                    const response = await fetch(`/api/settings/${key}?value=${encodeURIComponent(payload)}`, {
+                        method: 'PATCH',
+                        headers: { 'Authorization': 'Bearer ' + token }
+                    });
+                    if (response.ok) {
+                        alert('Saved ' + key);
+                    } else {
+                        const error = await response.json();
+                        throw new Error(error.detail || 'Failed to save');
+                    }
+                } catch (err) {
+                    alert('Error: ' + err.message);
+                    console.error(err);
+                }
+            }
+        };
+    }
+</script>
+{% endblock %}
