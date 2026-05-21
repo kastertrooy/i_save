@@ -74,6 +74,9 @@
                     <input type="text" x-model="watcherForm.instance_name"
                            class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white focus:outline-none focus:border-blue-500"
                            placeholder="e.g., watcher-1">
+                    <p class="mt-1 text-xs text-gray-400">
+                        Use Latin letters, numbers, dots, underscores, or hyphens. Start with a letter.
+                    </p>
                 </div>
                 
                 <button type="submit" :disabled="watcherSubmitting"
@@ -81,6 +84,36 @@
                     <span x-show="!watcherSubmitting">Start Watcher</span>
                     <span x-show="watcherSubmitting">Starting...</span>
                 </button>
+
+                <button type="button" @click="openWatcherBrowser()" :disabled="manualLoginSubmitting"
+                        class="w-full py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 text-white font-semibold rounded transition">
+                    <span x-show="!manualLoginSubmitting">Open browser for login</span>
+                    <span x-show="manualLoginSubmitting">Opening...</span>
+                </button>
+
+                <div x-show="manualLoginVisible"
+                     class="space-y-3 rounded border border-yellow-700 bg-yellow-950/30 p-4">
+                    <p class="text-sm text-yellow-100">
+                        Browser is open. Log into Instagram, then click "I logged in"
+                    </p>
+                    <a :href="manualLoginUrl" target="_blank" rel="noopener"
+                       class="block rounded bg-yellow-700 px-3 py-2 text-center text-sm font-semibold text-white hover:bg-yellow-600">
+                        Open browser window
+                    </a>
+                    <div class="flex items-center justify-between text-xs text-yellow-200">
+                        <span x-text="manualLoginStatusText"></span>
+                        <span x-text="manualLoginTimerText"></span>
+                    </div>
+                    <button type="button" @click="confirmWatcherLogin()" :disabled="manualLoginSubmitting"
+                            class="w-full py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white font-semibold rounded transition">
+                        I logged in
+                    </button>
+                </div>
+
+                <div x-show="watcherSuccess"
+                     class="rounded border border-green-700 bg-green-950/30 p-3 text-sm text-green-200">
+                    Watcher started successfully!
+                </div>
             </form>
         </div>
         
@@ -206,6 +239,14 @@
                 instance_name: ''
             },
             watcherSubmitting: false,
+            watcherSuccess: false,
+            manualLoginSubmitting: false,
+            manualLoginVisible: false,
+            manualLoginStatusText: '',
+            manualLoginTimer: 300,
+            manualLoginPollId: null,
+            manualLoginTimerId: null,
+            manualLoginUrl: 'http://localhost:6081/vnc.html',
             
             downloaderForm: {
                 storage_group_id: '',
@@ -274,6 +315,10 @@
                     alert('Please fill all fields');
                     return;
                 }
+                if (!this.isValidInstanceName(this.watcherForm.instance_name)) {
+                    alert('Instance name must start with a Latin letter and contain only Latin letters, numbers, dots, underscores, or hyphens. Example: watcher-1');
+                    return;
+                }
                 
                 this.watcherSubmitting = true;
                 try {
@@ -291,7 +336,7 @@
                         this.watcherForm = { account_id: '', instance_name: '' };
                         await this.loadServices();
                     } else {
-                        alert('Error starting watcher');
+                        alert(await this.getErrorMessage(response, 'Error starting watcher'));
                     }
                 } catch (err) {
                     console.error('Error:', err);
@@ -299,10 +344,139 @@
                     this.watcherSubmitting = false;
                 }
             },
+
+            get manualLoginTimerText() {
+                const minutes = Math.floor(this.manualLoginTimer / 60).toString().padStart(2, '0');
+                const seconds = (this.manualLoginTimer % 60).toString().padStart(2, '0');
+                return `${minutes}:${seconds}`;
+            },
+
+            async openWatcherBrowser() {
+                if (!this.watcherForm.account_id || !this.watcherForm.instance_name) {
+                    alert('Please fill all fields');
+                    return;
+                }
+                if (!this.isValidInstanceName(this.watcherForm.instance_name)) {
+                    alert('Instance name must start with a Latin letter and contain only Latin letters, numbers, dots, underscores, or hyphens. Example: watcher-1');
+                    return;
+                }
+
+                this.manualLoginSubmitting = true;
+                this.watcherSuccess = false;
+                const browserWindow = window.open(this.manualLoginUrl, '_blank', 'noopener');
+                try {
+                    const token = localStorage.getItem('access_token');
+                    const params = new URLSearchParams({
+                        account_id: this.watcherForm.account_id,
+                        instance_name: this.watcherForm.instance_name
+                    });
+                    const response = await fetch(`/api/services/watcher/open-browser?${params}`, {
+                        method: 'POST',
+                        headers: { 'Authorization': 'Bearer ' + token }
+                    });
+                    if (response.ok) {
+                        const data = await response.json();
+                        this.manualLoginUrl = data.novnc_url || this.manualLoginUrl;
+                        if (browserWindow && data.novnc_url) {
+                            browserWindow.location.href = this.manualLoginUrl;
+                        }
+                        this.manualLoginVisible = true;
+                        this.manualLoginStatusText = 'Waiting for Instagram login';
+                        this.startManualLoginPolling();
+                        await this.loadServices();
+                    } else {
+                        alert(await this.getErrorMessage(response, 'Error opening browser'));
+                    }
+                } catch (err) {
+                    console.error('Error:', err);
+                } finally {
+                    this.manualLoginSubmitting = false;
+                }
+            },
+
+            startManualLoginPolling() {
+                this.stopManualLoginPolling();
+                this.manualLoginTimer = 300;
+                this.manualLoginPollId = setInterval(() => this.pollWatcherLoginStatus(), 3000);
+                this.manualLoginTimerId = setInterval(() => {
+                    if (this.manualLoginTimer > 0) {
+                        this.manualLoginTimer -= 1;
+                    } else {
+                        this.stopManualLoginPolling();
+                        this.manualLoginStatusText = 'Login timer expired';
+                    }
+                }, 1000);
+                this.pollWatcherLoginStatus();
+            },
+
+            stopManualLoginPolling() {
+                if (this.manualLoginPollId) {
+                    clearInterval(this.manualLoginPollId);
+                    this.manualLoginPollId = null;
+                }
+                if (this.manualLoginTimerId) {
+                    clearInterval(this.manualLoginTimerId);
+                    this.manualLoginTimerId = null;
+                }
+            },
+
+            async pollWatcherLoginStatus() {
+                try {
+                    const token = localStorage.getItem('access_token');
+                    const response = await fetch('/api/services/watcher/login-status', {
+                        headers: { 'Authorization': 'Bearer ' + token }
+                    });
+                    if (response.ok) {
+                        const data = await response.json();
+                        this.manualLoginUrl = data.novnc_url || this.manualLoginUrl;
+                        this.manualLoginStatusText = data.message || data.status || 'Waiting for Instagram login';
+                        if (data.status === 'ready') {
+                            this.stopManualLoginPolling();
+                        }
+                    }
+                } catch (err) {
+                    console.error('Error:', err);
+                }
+            },
+
+            async confirmWatcherLogin() {
+                this.manualLoginSubmitting = true;
+                try {
+                    const token = localStorage.getItem('access_token');
+                    const params = new URLSearchParams({
+                        instance_name: this.watcherForm.instance_name || 'instagram_watcher_main'
+                    });
+                    const response = await fetch(`/api/services/watcher/confirm-login?${params}`, {
+                        method: 'POST',
+                        headers: { 'Authorization': 'Bearer ' + token }
+                    });
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.success) {
+                            this.stopManualLoginPolling();
+                            this.manualLoginVisible = false;
+                            this.watcherSuccess = true;
+                            await this.loadServices();
+                        } else {
+                            this.manualLoginStatusText = 'Login is not complete yet';
+                        }
+                    } else {
+                        alert(await this.getErrorMessage(response, 'Error confirming login'));
+                    }
+                } catch (err) {
+                    console.error('Error:', err);
+                } finally {
+                    this.manualLoginSubmitting = false;
+                }
+            },
             
             async startDownloader() {
                 if (!this.downloaderForm.storage_group_id || !this.downloaderForm.instance_name) {
                     alert('Please fill all fields');
+                    return;
+                }
+                if (!this.isValidInstanceName(this.downloaderForm.instance_name)) {
+                    alert('Instance name must start with a Latin letter and contain only Latin letters, numbers, dots, underscores, or hyphens. Example: downloader-1');
                     return;
                 }
                 
@@ -323,7 +497,7 @@
                         this.downloaderForm = { storage_group_id: '', position: '0', instance_name: '' };
                         await this.loadServices();
                     } else {
-                        alert('Error starting downloader');
+                        alert(await this.getErrorMessage(response, 'Error starting downloader'));
                     }
                 } catch (err) {
                     console.error('Error:', err);
@@ -378,6 +552,19 @@
             
             saveAutoScale() {
                 alert('Auto-scaling settings saved');
+            },
+
+            isValidInstanceName(value) {
+                return /^[A-Za-z][A-Za-z0-9_.-]{1,62}$/.test(value || '');
+            },
+
+            async getErrorMessage(response, fallback) {
+                try {
+                    const data = await response.json();
+                    return data.detail || fallback;
+                } catch (err) {
+                    return fallback;
+                }
             }
         }
     }

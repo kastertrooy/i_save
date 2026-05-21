@@ -2,9 +2,12 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY requirements.txt ./
+COPY services/media_sender/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+COPY services /app/services
+COPY shared /app/shared
 
-CMD ["python", "main.py"]
+ENV PYTHONPATH=/app
+
+CMD ["python", "-m", "services.media_sender.main"]

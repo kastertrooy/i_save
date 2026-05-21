@@ -1,5 +1,9 @@
 import asyncio
+from datetime import date, datetime
+
+from aiogram import Bot
 from sqlalchemy import select, update
+from shared.config import settings
 from shared.database.connection import async_session
 from shared.database.models import ContentQueue, User
 from shared.logger import get_logger
@@ -42,7 +46,19 @@ class SenderWorker:
             )
             result = await session.execute(stmt)
             items = result.scalars().all()
-            return items
+
+            if not items:
+                return []
+
+            item_ids = [item.id for item in items]
+            await session.execute(
+                update(ContentQueue)
+                .where(ContentQueue.id.in_(item_ids))
+                .values(status='sending')
+            )
+            await session.commit()
+
+        return items
 
     async def _process_item(self, item) -> None:
         self.logger.info('Processing content_queue id=%s', item.id)
@@ -55,18 +71,24 @@ class SenderWorker:
             if not user or not user.telegram_chat_id:
                 raise ValueError('User not available for delivery')
 
-            if user.subscription_status == 'expired' and user.daily_downloads_today >= user.daily_limit:
-                raise ValueError('User daily limit reached')
+            if user.subscription_status == 'blocked':
+                await self._delete_queue_item(item.id)
+                self.logger.info('Deleted content_queue id=%s for blocked user %s', item.id, user.id)
+                return
+
+            user = await self._refresh_daily_counter(user)
+
+            if user.subscription_status in ('expired', 'no_subscription') and (user.daily_downloads_today or 0) >= (user.daily_limit or 0):
+                await self._notify_limit_reached(user.telegram_chat_id)
+                await self._delete_queue_item(item.id)
+                self.logger.info('Deleted content_queue id=%s because user %s reached daily limit', item.id, user.id)
+                return
 
             await send_to_user(user, item)
 
-            async with async_session() as session:
-                await session.execute(
-                    ContentQueue.__table__.delete().where(ContentQueue.id == item.id)
-                )
-                await session.commit()
+            await self._mark_done(item.id)
 
-            self.logger.info('Deleted content_queue id=%s after delivery', item.id)
+            self.logger.info('Marked content_queue id=%s as done after delivery', item.id)
 
         except Exception as exc:
             self.logger.exception('Delivery error for content_queue id=%s: %s', item.id, exc)
@@ -87,3 +109,38 @@ class SenderWorker:
                 .values(**values)
             )
             await session.commit()
+
+    async def _delete_queue_item(self, item_id: int) -> None:
+        async with async_session() as session:
+            await session.execute(ContentQueue.__table__.delete().where(ContentQueue.id == item_id))
+            await session.commit()
+
+    async def _mark_done(self, item_id: int) -> None:
+        async with async_session() as session:
+            await session.execute(
+                update(ContentQueue)
+                .where(ContentQueue.id == item_id)
+                .values(status=ContentQueue.STATUS_DONE)
+            )
+            await session.commit()
+
+    async def _refresh_daily_counter(self, user: User) -> User:
+        today = date.today()
+        if not user.daily_downloads_updated_at or user.daily_downloads_updated_at.date() != today:
+            async with async_session() as session:
+                await session.execute(
+                    update(User)
+                    .where(User.id == user.id)
+                    .values(daily_downloads_today=0, daily_downloads_updated_at=datetime.utcnow())
+                )
+                await session.commit()
+            user.daily_downloads_today = 0
+            user.daily_downloads_updated_at = datetime.utcnow()
+        return user
+
+    async def _notify_limit_reached(self, chat_id: int) -> None:
+        bot = Bot(token=settings.telegram_bot_token)
+        try:
+            await bot.send_message(chat_id=chat_id, text='Лимит скачиваний на сегодня исчерпан.')
+        finally:
+            await bot.session.close()

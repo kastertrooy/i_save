@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     docker_socket: str
     temp_download_path: str
     max_video_size_mb: float = 1024.0
+    headless: bool = True
+    browser_service_url: str = "http://browser_service:8000"
+    browser_novnc_url: str = "http://localhost:6081/vnc.html"
 
     @property
     def secret_key(self) -> str:
@@ -23,6 +26,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = False
+        extra = "ignore"
 
 
 # Singleton экземпляр

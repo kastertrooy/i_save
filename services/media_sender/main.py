@@ -2,14 +2,18 @@ import asyncio
 import signal
 
 from shared.logger import get_logger
+from shared.service_heartbeat import get_instance_name, start_heartbeat_task, stop_heartbeat_task
 from .worker import SenderWorker
 
 logger = get_logger('media_sender')
+SERVICE_TYPE = 'sender'
+INSTANCE_NAME = get_instance_name('sender-1')
 
 
 async def main() -> None:
     worker = SenderWorker()
     task = asyncio.create_task(worker.run())
+    heartbeat_task = start_heartbeat_task(SERVICE_TYPE, INSTANCE_NAME)
     stop_event = asyncio.Event()
 
     def _shutdown() -> None:
@@ -34,6 +38,7 @@ async def main() -> None:
             await task
         except asyncio.CancelledError:
             pass
+        await stop_heartbeat_task(heartbeat_task, SERVICE_TYPE, INSTANCE_NAME)
         logger.info('media_sender service stopped')
 
 

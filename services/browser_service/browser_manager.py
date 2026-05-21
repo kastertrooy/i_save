@@ -4,10 +4,13 @@ import random
 import re
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlparse
 
 from playwright.async_api import async_playwright, TimeoutError
+from playwright_stealth import Stealth
 from sqlalchemy import select
 
+from shared.config import settings
 from shared.database.connection import async_session
 from shared.database.models import InstagramAccount
 from shared.encryption import decrypt
@@ -26,6 +29,8 @@ class BrowserManager:
         self.debug_dir = Path(os.getenv('BROWSER_DEBUG_DIR', '/app/temp/browser_debug'))
         self.manual_browser = os.getenv('MANUAL_BROWSER', '0') == '1'
         self.manual_login_timeout_sec = int(os.getenv('MANUAL_LOGIN_TIMEOUT_SEC', '900'))
+        self.login_status = 'idle'
+        self.login_status_message = ''
         self.logger = get_logger('browser_service')
 
     async def start(self, account_id: int) -> None:
@@ -35,20 +40,24 @@ class BrowserManager:
 
         self.playwright = await async_playwright().start()
         launch_kwargs = {
-            'headless': not self.manual_browser,
+            'headless': settings.headless and not self.manual_browser,
             'slow_mo': 80 if self.manual_browser else 0,
         }
         if proxy:
             launch_kwargs['proxy'] = proxy
 
         self.browser = await self.playwright.chromium.launch(**launch_kwargs)
-        self.context = await self.browser.new_context()
+        self.context = await self._new_context()
         cookies = await load_cookies(account_id)
         if cookies:
             await self.context.add_cookies(cookies)
 
-        self.page = await self.context.new_page()
-        await self.page.goto('https://www.instagram.com/', timeout=30000)
+        self.page = await self._new_page()
+        await self.page.goto(
+            'https://www.instagram.com/direct/inbox/',
+            wait_until='domcontentloaded',
+            timeout=45000,
+        )
         await asyncio.sleep(random.uniform(2.0, 8.0))
 
         if not await self._is_logged_in():
@@ -56,10 +65,101 @@ class BrowserManager:
 
         cookies = await self.context.cookies()
         await save_cookies(account_id, cookies)
+        self.login_status = 'ready'
+        self.login_status_message = 'Browser session is ready'
         self.logger.info('Browser started and cookies saved for account %s', account_id)
 
+    async def start_manual_login(self, account_id: int) -> None:
+        self.account_id = account_id
+        self.login_status = 'starting'
+        self.login_status_message = 'Opening visible browser'
+        proxy = await get_proxy_for_account(account_id)
+        self.logger.info('Starting manual login browser for account %s with proxy=%s', account_id, bool(proxy))
+
+        await self.close()
+        self.account_id = account_id
+        self.playwright = await async_playwright().start()
+        launch_kwargs = {
+            'headless': False,
+            'slow_mo': 80,
+        }
+        if proxy:
+            launch_kwargs['proxy'] = proxy
+
+        self.browser = await self.playwright.chromium.launch(**launch_kwargs)
+        self.context = await self._new_context()
+        cookies = await load_cookies(account_id)
+        if cookies:
+            await self.context.add_cookies(cookies)
+
+        self.page = await self._new_page()
+        initial_url = 'https://www.instagram.com/direct/inbox/' if cookies else 'https://www.instagram.com/'
+        await self.page.goto(initial_url, wait_until='domcontentloaded', timeout=45000)
+        await asyncio.sleep(random.uniform(2.0, 8.0))
+
+        status = await self._status_from_current_url()
+        if status == 'ready':
+            self.login_status = 'ready'
+            self.login_status_message = 'Existing Instagram session is valid'
+            await save_cookies(account_id, await self.context.cookies())
+            return
+
+        self.login_status = 'waiting_for_login'
+        if status == 'challenge':
+            self.login_status_message = 'Instagram challenge is open; admin action is required'
+            self.logger.warning('Instagram challenge required during manual login for account %s', account_id)
+        else:
+            self.login_status_message = 'Waiting for admin to log into Instagram'
+            if '/login/' not in self.page.url:
+                await self.page.goto(
+                    'https://www.instagram.com/accounts/login/',
+                    wait_until='domcontentloaded',
+                    timeout=45000,
+                )
+                await asyncio.sleep(random.uniform(2.0, 8.0))
+
+    async def confirm_login(self) -> bool:
+        if not self.page or not self.context or self.account_id is None:
+            self.login_status = 'not_started'
+            self.login_status_message = 'Manual login browser is not open'
+            return False
+
+        await asyncio.sleep(random.uniform(2.0, 8.0))
+        status = await self._status_from_current_url()
+        if status != 'ready':
+            self.login_status = 'waiting_for_login'
+            self.login_status_message = 'Instagram login is not complete yet'
+            return False
+
+        await save_cookies(self.account_id, await self.context.cookies())
+        try:
+            await self.page.goto('https://www.instagram.com/direct/inbox/', wait_until='domcontentloaded', timeout=45000)
+            await asyncio.sleep(random.uniform(2.0, 8.0))
+        except Exception as exc:
+            self.logger.warning('Failed to navigate to Instagram Direct after manual login: %s', exc)
+
+        status = await self._status_from_current_url()
+        if status != 'ready':
+            self.login_status = 'waiting_for_login'
+            self.login_status_message = 'Instagram redirected to login; manual login is still required'
+            return False
+
+        self.login_status = 'ready'
+        self.login_status_message = 'Instagram login confirmed and cookies saved'
+        self.logger.info('Manual Instagram login confirmed for account %s', self.account_id)
+        return True
+
+    def get_login_status(self) -> dict:
+        current_url = self.page.url if self.page else None
+        return {
+            'status': self.login_status,
+            'url': current_url,
+            'account_id': self.account_id,
+            'message': self.login_status_message,
+        }
+
     async def check_session(self) -> bool:
-        if not self.browser or self.browser.is_closed():
+        if not self.browser or not self.browser.is_connected():
             return False
         if not self.page:
             return False
@@ -106,6 +206,47 @@ class BrowserManager:
         self.context = None
         self.browser = None
         self.playwright = None
+        if self.login_status not in ('idle', 'ready'):
+            self.login_status = 'idle'
+            self.login_status_message = 'Browser is closed'
+
+    async def _new_page(self):
+        return await self.context.new_page()
+
+    async def _new_context(self):
+        context = await self.browser.new_context()
+        await context.route(
+            '**/*',
+            lambda route: (
+                route.abort()
+                if route.request.resource_type in {'image', 'media', 'font'}
+                else route.continue_()
+            ),
+        )
+        try:
+            await Stealth().apply_stealth_async(context)
+        except Exception as exc:
+            self.logger.warning('Failed to apply playwright-stealth to context: %s', exc)
+        return context
+
+    async def _status_from_current_url(self) -> str:
+        if not self.page:
+            return 'not_started'
+
+        url = self.page.url
+        parsed_url = urlparse(url)
+        path = parsed_url.path.rstrip('/')
+        if '/challenge/' in url:
+            return 'challenge'
+        if '/login/' in url or '/accounts/login' in url:
+            return 'login'
+        if '/direct/' in url:
+            return 'ready'
+        if parsed_url.netloc.endswith('instagram.com') and path in ('', '/'):
+            return 'ready' if await self._is_logged_in() else 'login'
+        if await self._is_logged_in():
+            return 'ready'
+        return 'login'
 
     async def _is_logged_in(self) -> bool:
         try:
@@ -138,6 +279,8 @@ class BrowserManager:
                 wait_until='domcontentloaded',
                 timeout=45000,
             )
+            if await self._continue_saved_profile():
+                return
             await self._fill_login_fields(username, password)
         except Exception as exc:
             await self._save_debug_artifacts('login_form_missing')
@@ -195,7 +338,7 @@ class BrowserManager:
 
         username_filled = await self._fill_first_available(username_locators, username, 'username')
         password_filled = await self._fill_first_available(password_locators, password, 'password')
-        if username_filled and password_filled:
+        if password_filled:
             return
 
         # Instagram's current login page often autofocuses the username field even
@@ -219,11 +362,34 @@ class BrowserManager:
                 continue
         return False
 
+    async def _continue_saved_profile(self) -> bool:
+        continue_locators = [
+            self.page.get_by_role('button', name=re.compile(r'^continue$', re.IGNORECASE)),
+            self.page.locator('div[role="button"]').filter(has_text=re.compile(r'^continue$', re.IGNORECASE)).first,
+        ]
+        for locator in continue_locators:
+            try:
+                await locator.wait_for(state='visible', timeout=3000)
+                self.logger.info('Continuing saved Instagram profile for account %s', self.account_id)
+                await locator.click()
+                try:
+                    await self.page.wait_for_selector('a[href*="/direct/"]', timeout=20000)
+                    await asyncio.sleep(random.uniform(2.0, 8.0))
+                    return True
+                except TimeoutError:
+                    self.logger.warning('Saved profile continue did not complete login for account %s', self.account_id)
+                    return False
+            except Exception:
+                continue
+        return False
+
     async def _click_login_button(self) -> None:
         button_locators = [
             self.page.get_by_role('button', name=re.compile(r'^log in$', re.IGNORECASE)),
+            self.page.get_by_role('button', name=re.compile(r'^continue$', re.IGNORECASE)),
             self.page.locator('button[type="submit"]').first,
             self.page.locator('div[role="button"]').filter(has_text=re.compile(r'^log in$', re.IGNORECASE)).first,
+            self.page.locator('div[role="button"]').filter(has_text=re.compile(r'^continue$', re.IGNORECASE)).first,
         ]
         for locator in button_locators:
             try:

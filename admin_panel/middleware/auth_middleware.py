@@ -3,6 +3,7 @@ from typing import Optional
 
 from fastapi import HTTPException, status
 from jose import JWTError, jwt
+from jose.exceptions import ExpiredSignatureError
 from pydantic import BaseModel
 
 from shared.config import Settings
@@ -146,6 +147,12 @@ def verify_token(token: str, token_type: str = 'access') -> TokenPayload:
             type=payload['type']
         )
     
+    except ExpiredSignatureError as e:
+        logger.warning('JWT verification failed: %s', str(e))
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail='Token expired'
+        )
     except JWTError as e:
         logger.warning('JWT verification failed: %s', str(e))
         raise HTTPException(

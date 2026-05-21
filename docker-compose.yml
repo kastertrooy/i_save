@@ -56,6 +56,35 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  browser_service:
+    build:
+      context: .
+      dockerfile: ./services/browser_service/Dockerfile
+    ports:
+      - "8001:8000"
+      - "6081:6080"
+    env_file:
+      - .env
+    environment:
+      PYTHONPATH: /app
+      DISPLAY: ":99"
+      NOVNC_PORT: "6080"
+      COOKIES_DIR: /app/Cookies
+    volumes:
+      - ./Cookies:/app/Cookies
+      - ./shared:/app/shared
+      - ./services/browser_service:/app/services/browser_service
+      - ./alembic.ini:/app/alembic.ini
+      - temp_downloads:/app/temp/downloads
+    networks:
+      - instatg_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
   telegram_bot:
     build:
       context: ./services/telegram_bot

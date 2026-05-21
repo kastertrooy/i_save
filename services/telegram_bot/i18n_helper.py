@@ -6,6 +6,18 @@ from typing import Dict
 _cache: Dict[str, Dict[str, str]] = {}
 
 
+def _i18n_path(language: str) -> Path:
+    candidates = [
+        Path('/shared/i18n') / f'{language}.json',
+        Path(__file__).resolve().parents[2] / 'shared' / 'i18n' / f'{language}.json',
+        Path.cwd() / 'shared' / 'i18n' / f'{language}.json',
+    ]
+    for path in candidates:
+        if path.exists():
+            return path
+    return candidates[0]
+
+
 def get_text(key: str, language: str, **kwargs) -> str:
     """
     Получает текст перевода по ключу и языку.
@@ -15,10 +27,10 @@ def get_text(key: str, language: str, **kwargs) -> str:
     Поддержка подстановки переменных через .format(**kwargs)
     """
     if language not in _cache:
-        file_path = Path(__file__).parent.parent / 'shared' / 'i18n' / f'{language}.json'
+        file_path = _i18n_path(language)
         if not file_path.exists():
             language = 'ru'  # Fallback на русский
-            file_path = Path(__file__).parent.parent / 'shared' / 'i18n' / 'ru.json'
+            file_path = _i18n_path('ru')
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 _cache[language] = json.load(f)
@@ -31,7 +43,7 @@ def get_text(key: str, language: str, **kwargs) -> str:
     if text is None:
         # Fallback на русский
         if 'ru' not in _cache:
-            ru_path = Path(__file__).parent.parent / 'shared' / 'i18n' / 'ru.json'
+            ru_path = _i18n_path('ru')
             try:
                 with open(ru_path, 'r', encoding='utf-8') as f:
                     _cache['ru'] = json.load(f)

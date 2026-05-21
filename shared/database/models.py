@@ -1,4 +1,6 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, JSON
+from datetime import datetime
+
+from sqlalchemy import Column, Integer, BigInteger, String, Text, DateTime, Boolean, ForeignKey, JSON, Float
 from sqlalchemy.ext.declarative import declarative_base
 
 Base = declarative_base()
@@ -6,10 +8,16 @@ Base = declarative_base()
 
 class User(Base):
     __tablename__ = 'users'
+    STATUS_ACTIVE = 'active'
+    STATUS_EXPIRED = 'expired'
+    STATUS_FREE_TRIAL = 'free_trial'
+    STATUS_BLOCKED = 'blocked'
+    STATUS_NO_SUBSCRIPTION = 'no_subscription'
 
     id = Column(Integer, primary_key=True)
     instagram_id = Column(String, nullable=False)
-    telegram_chat_id = Column(Integer, nullable=True)
+    instagram_username = Column(String, nullable=True)
+    telegram_chat_id = Column(BigInteger, nullable=True)
     language = Column(String(2), nullable=False)  # ru, uz, en
     subscription_status = Column(String, nullable=False)
     daily_limit = Column(Integer, nullable=False)
@@ -24,6 +32,14 @@ class User(Base):
 
 class ContentQueue(Base):
     __tablename__ = 'content_queue'
+    STATUS_NO_TELEGRAM = 'no_telegram'
+    STATUS_PENDING = 'pending'
+    STATUS_DOWNLOADING = 'downloading'
+    STATUS_DOWNLOADED = 'downloaded'
+    STATUS_SENDING = 'sending'
+    STATUS_DONE = 'done'
+    STATUS_FAILED = 'failed'
+    STATUS_EXPIRED = 'expired'
 
     id = Column(Integer, primary_key=True)
     instagram_id = Column(String, nullable=False)
@@ -42,11 +58,20 @@ class MediaCache(Base):
     telegram_file_id_video = Column(String, nullable=True)
     telegram_file_id_audio = Column(String, nullable=True)
     telegram_file_id_photo = Column(String, nullable=True)
+    telegram_file_id_document = Column(String, nullable=True)
+    telegram_file_ids = Column(JSON, nullable=True)
+    size_mb = Column(Float, nullable=False, default=0.0)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     storage_group_id = Column(Integer, ForeignKey('telegram_storage_groups.id'), nullable=False)
 
 
 class InstagramAccount(Base):
     __tablename__ = 'instagram_accounts'
+    STATUS_ACTIVE = 'active'
+    STATUS_BLOCKED = 'blocked'
+    STATUS_INACTIVE = 'inactive'
+    STATUS_CHECKING = 'checking'
+    STATUS_SESSION_EXPIRED = 'session_expired'
 
     id = Column(Integer, primary_key=True)
     username = Column(String, nullable=False)
@@ -76,7 +101,7 @@ class TelegramStorageGroup(Base):
 
     id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)
-    telegram_group_id = Column(Integer, nullable=False)
+    telegram_group_id = Column(BigInteger, nullable=False, unique=True)
 
 
 class StaffAccount(Base):
@@ -112,22 +137,44 @@ class DeliveryLog(Base):
     __tablename__ = 'delivery_logs'
 
     id = Column(Integer, primary_key=True)
-    content_queue_id = Column(Integer, ForeignKey('content_queue.id'), nullable=False)
+    content_queue_id = Column(Integer, ForeignKey('content_queue.id', ondelete='SET NULL'), nullable=True)
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
     delivery_type = Column(String, nullable=False)
     status = Column(String, nullable=False)
+    created_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
 class ServiceInstance(Base):
     __tablename__ = 'service_instances'
+    STATUS_RUNNING = 'running'
+    STATUS_STOPPED = 'stopped'
+    STATUS_ERROR = 'error'
+    STATUS_STARTING = 'starting'
 
     id = Column(Integer, primary_key=True)
     service_type = Column(String, nullable=False)
     instance_name = Column(String, nullable=False)
     status = Column(String, nullable=False)
     container_id = Column(String(100), nullable=True)
+    started_at = Column(DateTime, nullable=True)
     last_heartbeat_at = Column(DateTime, nullable=True)
     queue_start_position = Column(Integer, nullable=True)
+
+
+class DirectMessageLog(Base):
+    __tablename__ = 'direct_message_logs'
+
+    id = Column(Integer, primary_key=True)
+    message_id = Column(String, nullable=False)
+    instagram_id = Column(String, nullable=True)
+    text = Column(Text, nullable=True)
+    url = Column(Text, nullable=True)
+    content_type = Column(String, nullable=True)
+    status = Column(String, nullable=False)
+    error = Column(Text, nullable=True)
+    raw_data = Column(JSON, nullable=True)
+    created_at = Column(DateTime, nullable=False)
 
 
 class WorkerSchedule(Base):

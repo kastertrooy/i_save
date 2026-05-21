@@ -1,7 +1,10 @@
 from datetime import datetime, timedelta
 from typing import Optional
+import re
 
 from fastapi import APIRouter, HTTPException, status, Depends, Query, Header, Cookie
+import docker
+from docker.errors import DockerException
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,6 +15,20 @@ from admin_panel.middleware.auth_middleware import get_current_user
 
 logger = get_logger('admin_panel')
 router = APIRouter(prefix='/api/logs', tags=['logs'])
+LOG_LINE_RE = re.compile(
+    r'^\[(?P<timestamp>[^\]]+)\]\s+\[(?P<service>[^\]]+)\]\s+\[(?P<level>[^\]]+)\]\s+(?P<message>.*)$'
+)
+
+
+def _guess_level(line: str) -> str:
+    upper_line = line.upper()
+    if 'ERROR' in upper_line or 'EXCEPTION' in upper_line or 'TRACEBACK' in upper_line:
+        return 'ERROR'
+    if 'WARNING' in upper_line or 'WARN' in upper_line:
+        return 'WARNING'
+    if 'DEBUG' in upper_line:
+        return 'DEBUG'
+    return 'INFO'
 
 
 def _require_admin(
@@ -40,17 +57,69 @@ async def get_logs(
     refresh_token: Optional[str] = Cookie(None),
     db: AsyncSession = Depends(get_db)
 ) -> dict:
-    """Get error logs with optional filters."""
+    """Get service logs with optional filters."""
     staff_id, role = _require_admin(authorization, refresh_token)
-    
-    # In a real implementation, you would query from a dedicated logs table
-    # For now, we'll return a structured response showing the filter capabilities
-    logger.info('Admin %s requested error logs (service=%s, level=%s, days=%s)', 
-                staff_id, service, level, days)
-    
-    # Placeholder logs structure - in production, would query actual log storage
+    start_date = datetime.utcnow() - timedelta(days=days)
+    normalized_level = level.upper() if level else None
+    items = []
+
+    try:
+        client = docker.from_env()
+        containers = client.containers.list(all=True)
+        for container in containers:
+            container_name = container.name
+            if service and service.lower() not in container_name.lower():
+                continue
+
+            raw_logs = container.logs(since=start_date, tail=500).decode('utf-8', errors='replace')
+            for raw_line in raw_logs.splitlines():
+                line = raw_line.strip()
+                if not line:
+                    continue
+
+                parsed = LOG_LINE_RE.match(line)
+                if parsed:
+                    log_service = parsed.group('service')
+                    log_level = parsed.group('level').upper()
+                    timestamp = parsed.group('timestamp')
+                    message = parsed.group('message')
+                else:
+                    log_service = container_name
+                    log_level = _guess_level(line)
+                    timestamp = None
+                    message = line
+
+                if normalized_level and log_level != normalized_level:
+                    continue
+                if service and service.lower() not in log_service.lower() and service.lower() not in container_name.lower():
+                    continue
+
+                items.append({
+                    'id': len(items) + 1,
+                    'container': container_name,
+                    'service': log_service,
+                    'level': log_level.lower(),
+                    'timestamp': timestamp,
+                    'message': message,
+                })
+    except DockerException as exc:
+        logger.error('Failed to read Docker logs: %s', exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail='Failed to read Docker logs',
+        )
+
+    items.reverse()
+    total = len(items)
+    page_items = items[skip:skip + limit]
+
+    logger.info(
+        'Admin %s requested logs (service=%s, level=%s, days=%s, returned=%s)',
+        staff_id, service, level, days, len(page_items),
+    )
+
     return {
-        'total': 0,
+        'total': total,
         'skip': skip,
         'limit': limit,
         'filters': {
@@ -58,7 +127,7 @@ async def get_logs(
             'level': level,
             'days': days
         },
-        'items': []
+        'items': page_items
     }
 
 
@@ -132,6 +201,7 @@ async def get_delivery_logs(
     start_date = now - timedelta(days=days)
     
     stmt = select(DeliveryLog)
+    stmt = stmt.where(DeliveryLog.created_at >= start_date)
     
     # Apply filters
     if user_id:
@@ -140,7 +210,12 @@ async def get_delivery_logs(
         stmt = stmt.where(DeliveryLog.status == status_filter)
     
     # Count total
-    count_result = await db.execute(select(func.count()).select_from(DeliveryLog))
+    count_stmt = select(func.count()).select_from(DeliveryLog).where(DeliveryLog.created_at >= start_date)
+    if user_id:
+        count_stmt = count_stmt.where(DeliveryLog.user_id == user_id)
+    if status_filter:
+        count_stmt = count_stmt.where(DeliveryLog.status == status_filter)
+    count_result = await db.execute(count_stmt)
     total = count_result.scalar() or 0
     
     # Apply pagination
@@ -161,6 +236,7 @@ async def get_delivery_logs(
                 'content_queue_id': log.content_queue_id,
                 'delivery_type': log.delivery_type,
                 'status': log.status,
+                'created_at': log.created_at.isoformat() if log.created_at else None,
             }
             for log in logs
         ]

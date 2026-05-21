@@ -4,3 +4,4 @@ cryptography
 httpx
 pydantic-settings
 playwright
+playwright-stealth

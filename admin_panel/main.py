@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import os
 from pathlib import Path
 from typing import AsyncGenerator
 
@@ -9,12 +10,15 @@ from fastapi.templating import Jinja2Templates
 
 from shared.database.connection import init_db
 from shared.logger import get_logger
+from shared.service_heartbeat import get_instance_name, start_heartbeat_task, stop_heartbeat_task
 from admin_panel.routers import (
     auth, dashboard, pages, services, users,
-    accounts, groups, staff, settings, logs
+    accounts, groups, staff, settings, logs, database
 )
 
 logger = get_logger('admin_panel')
+SERVICE_TYPE = 'admin_panel'
+INSTANCE_NAME = get_instance_name('admin_panel_main')
 
 
 @asynccontextmanager
@@ -23,11 +27,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     # Startup
     logger.info('Admin panel starting up')
     await init_db()
+    heartbeat_task = start_heartbeat_task(SERVICE_TYPE, INSTANCE_NAME)
     logger.info('Database initialized')
     
     yield
     
     # Shutdown
+    await stop_heartbeat_task(heartbeat_task, SERVICE_TYPE, INSTANCE_NAME)
     logger.info('Admin panel shutting down')
 
 
@@ -75,6 +81,7 @@ def create_app() -> FastAPI:
     app.include_router(staff.router)
     app.include_router(settings.router)
     app.include_router(logs.router)
+    app.include_router(database.router)
     
     logger.info('All routers registered')
     
@@ -98,6 +105,6 @@ if __name__ == '__main__':
         'admin_panel.main:app',
         host='0.0.0.0',
         port=8000,
-        reload=True,
+        reload=os.getenv('ADMIN_RELOAD', 'false').lower() == 'true',
         log_level='info'
     )

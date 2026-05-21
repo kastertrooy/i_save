@@ -26,9 +26,16 @@ def _should_skip_size(info: dict) -> bool:
 
 def _extract_downloaded_filepath(info: dict, output_path: Path, prefix: str) -> str:
     if 'requested_downloads' in info and info['requested_downloads']:
-        return info['requested_downloads'][0].get('filepath')
+        filepath = info['requested_downloads'][0].get('filepath')
+        if filepath and Path(filepath).exists():
+            return filepath
     ext = info.get('ext') or 'mp4'
-    return str(output_path / f'{prefix}.{ext}')
+    filepath = output_path / f'{prefix}.{ext}'
+    if filepath.exists():
+        return str(filepath)
+
+    matches = sorted(output_path.glob(f'{prefix}.*'), key=lambda path: path.stat().st_mtime, reverse=True)
+    return str(matches[0]) if matches else str(filepath)
 
 
 def download_media(url: str, content_type: str, queue_id: int) -> str:
@@ -78,6 +85,9 @@ def download_media(url: str, content_type: str, queue_id: int) -> str:
         return ''
 
     filepath = _extract_downloaded_filepath(info, output_path, 'media')
+    if not Path(filepath).exists():
+        logger.error('Downloaded media path does not exist for %s: %s', url, filepath)
+        return ''
     logger.info('Downloaded media to %s', filepath)
     return filepath
 
@@ -130,6 +140,9 @@ def download_carousel(urls: List[str], queue_id: int) -> List[str]:
             continue
 
         filepath = _extract_downloaded_filepath(info, output_path, filename_prefix)
+        if not Path(filepath).exists():
+            logger.warning('Downloaded carousel path does not exist for %s: %s', url, filepath)
+            continue
         paths.append(filepath)
         logger.info('Downloaded carousel item to %s', filepath)
 

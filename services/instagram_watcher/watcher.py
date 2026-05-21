@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, date
+from datetime import date, datetime
 
 from sqlalchemy import select, insert, update
 from shared.database.connection import async_session
@@ -7,10 +7,10 @@ from shared.database.models import (
     User,
     InstagramAccount,
     ContentQueue,
-    ServiceInstance,
     SystemSetting,
 )
 from shared.logger import get_logger
+from shared.service_heartbeat import get_instance_name, update_service_heartbeat
 from .direct_reader import DirectReader
 from .token_generator import generate_bind_token, get_bind_link
 
@@ -22,6 +22,7 @@ class InstagramWatcher:
         self.account_id = None
         self.health_task = None
         self.logger = get_logger('instagram_watcher')
+        self.instance_name = get_instance_name('instagram_watcher_main')
 
     async def start(self, account_id: int) -> None:
         self.account_id = account_id
@@ -49,6 +50,7 @@ class InstagramWatcher:
 
         if self.direct_reader.page:
             try:
+                await self.direct_reader.stop()
                 await self.direct_reader.page.close()
             except Exception as exc:
                 self.logger.warning('Error closing direct reader page: %s', exc)
@@ -57,25 +59,36 @@ class InstagramWatcher:
         self.logger.info('InstagramWatcher stopped')
 
     async def handle_user(self, instagram_id: str, message_data: dict) -> None:
+        instagram_username = self._extract_instagram_username(message_data, instagram_id)
         async with async_session() as session:
             stmt = select(User).where(User.instagram_id == instagram_id)
             result = await session.execute(stmt)
             user = result.scalar_one_or_none()
 
         if not user:
-            await self._create_user(instagram_id)
+            await self._create_user(instagram_id, instagram_username)
             token = await generate_bind_token(instagram_id)
             await self.direct_reader.send_direct_message(
-                instagram_id,
+                message_data,
                 f'Please bind your account: {get_bind_link(token)}',
             )
             await self._insert_content_queue(instagram_id, message_data, status='no_telegram')
             return
 
+        if instagram_username and user.instagram_username != instagram_username:
+            async with async_session() as session:
+                await session.execute(
+                    update(User)
+                    .where(User.id == user.id)
+                    .values(instagram_username=instagram_username)
+                )
+                await session.commit()
+            user.instagram_username = instagram_username
+
         if user.telegram_chat_id is None:
             token = await generate_bind_token(instagram_id)
             await self.direct_reader.send_direct_message(
-                instagram_id,
+                message_data,
                 f'Please bind your account: {get_bind_link(token)}',
             )
             await self._insert_content_queue(instagram_id, message_data, status='no_telegram')
@@ -86,11 +99,14 @@ class InstagramWatcher:
             await self._insert_content_queue(instagram_id, message_data, status='pending')
             return
 
-        if subscription_status == 'expired':
+        if subscription_status == 'blocked':
+            return
+
+        if subscription_status in ('expired', 'no_subscription'):
             user = await self._refresh_daily_counter(user)
             if user.daily_downloads_today >= (user.daily_limit or 0):
                 await self.direct_reader.send_direct_message(
-                    instagram_id,
+                    message_data,
                     'Your daily download limit has been reached.',
                 )
                 return
@@ -110,36 +126,26 @@ class InstagramWatcher:
                 self.logger.exception('Heartbeat loop error: %s', exc)
 
     async def _update_service_instance(self, status: str) -> None:
-        now = datetime.utcnow()
-        async with async_session() as session:
-            stmt = select(ServiceInstance).where(
-                ServiceInstance.service_type == 'instagram_watcher',
-                ServiceInstance.instance_name == 'instagram_watcher_main',
-            )
-            result = await session.execute(stmt)
-            instance = result.scalar_one_or_none()
-            if instance:
-                await session.execute(
-                    update(ServiceInstance)
-                    .where(
-                        ServiceInstance.service_type == 'instagram_watcher',
-                        ServiceInstance.instance_name == 'instagram_watcher_main',
-                    )
-                    .values(status=status, last_heartbeat_at=now)
-                )
-            else:
-                await session.execute(
-                    insert(ServiceInstance).values(
-                        service_type='instagram_watcher',
-                        instance_name='instagram_watcher_main',
-                        status=status,
-                        last_heartbeat_at=now,
-                        queue_start_position=None,
-                    )
-                )
-            await session.commit()
+        await update_service_heartbeat('instagram_watcher', self.instance_name, status=status)
 
-    async def _create_user(self, instagram_id: str) -> None:
+    def _extract_instagram_username(self, message_data: dict, instagram_id: str | None) -> str | None:
+        username = message_data.get('username')
+        if isinstance(username, str) and username:
+            return username
+
+        users = message_data.get('users')
+        if isinstance(users, list):
+            for user in users:
+                if not isinstance(user, dict):
+                    continue
+                user_id = user.get('pk') or user.get('id') or user.get('user_id')
+                username = user.get('username')
+                if username and (not instagram_id or str(user_id) == str(instagram_id)):
+                    return username
+
+        return None
+
+    async def _create_user(self, instagram_id: str, instagram_username: str | None = None) -> None:
         default_limit = await self._get_system_setting('expired_daily_limit', '5')
         try:
             daily_limit = int(default_limit)
@@ -149,6 +155,7 @@ class InstagramWatcher:
         async with async_session() as session:
             stmt = insert(User).values(
                 instagram_id=instagram_id,
+                instagram_username=instagram_username,
                 telegram_chat_id=None,
                 language='ru',
                 subscription_status='expired',

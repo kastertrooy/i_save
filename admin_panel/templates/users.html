@@ -67,7 +67,7 @@
                     <tr class="hover:bg-gray-800/50">
                         <td class="py-3 px-4">
                             <a :href="'/users/' + user.id" class="text-blue-400 hover:text-blue-300">
-                                <span x-text="user.instagram_id"></span>
+                                <span x-text="instagramLabel(user)"></span>
                             </a>
                         </td>
                         <td class="py-3 px-4 text-gray-400">
@@ -101,6 +101,10 @@
                                         class="text-white text-xs rounded px-2 py-1">
                                     <span x-show="user.subscription_status === 'blocked'">Unblock</span>
                                     <span x-show="user.subscription_status !== 'blocked'">Block</span>
+                                </button>
+                                <button @click="deleteUser(user)"
+                                        class="px-2 py-1 bg-red-800 hover:bg-red-900 text-white text-xs rounded">
+                                    Delete
                                 </button>
                             </div>
                         </td>
@@ -232,6 +236,32 @@
                     }
                 }
             },
+
+            async deleteUser(user) {
+                const label = this.instagramLabel(user) || user.telegram_username || user.id;
+                if (!confirm(`Delete user "${label}"? This action cannot be undone.`)) return;
+
+                try {
+                    const token = localStorage.getItem('access_token');
+                    const response = await fetch(`/api/users/${user.id}`, {
+                        method: 'DELETE',
+                        headers: { 'Authorization': 'Bearer ' + token }
+                    });
+
+                    if (!response.ok) {
+                        const error = await response.json().catch(() => ({}));
+                        throw new Error(error.detail || 'Delete failed');
+                    }
+
+                    if (this.users.length === 1 && this.page > 1) {
+                        this.page--;
+                    }
+                    await this.loadUsers();
+                } catch (err) {
+                    alert('Error: ' + err.message);
+                    console.error('Error:', err);
+                }
+            },
             
             async bulkGrantSubscription() {
                 const days = prompt('Grant subscription to ALL users for how many days?', '30');
@@ -251,6 +281,11 @@
                         console.error('Error:', err);
                     }
                 }
+            },
+
+            instagramLabel(user) {
+                if (user.instagram_username) return '@' + user.instagram_username;
+                return user.instagram_id || 'N/A';
             },
             
             nextPage() {

@@ -1,10 +1,14 @@
+from datetime import datetime
+
 from aiogram import Bot
-from aiogram.types import InputFile, InputMediaPhoto, InputMediaVideo
+from aiogram.types import InputMediaPhoto, InputMediaVideo
+from sqlalchemy import func
 
 from shared.config import settings
 from shared.database.connection import async_session
 from shared.database.models import MediaCache, DeliveryLog, User
 from shared.logger import get_logger
+from shared.url_utils import normalize_instagram_url
 
 logger = get_logger('media_sender')
 
@@ -19,7 +23,9 @@ async def send_to_user(user: User, content_queue_item) -> None:
         raise ValueError('User has no telegram_chat_id')
 
     async with async_session() as session:
-        stmt = MediaCache.__table__.select().where(MediaCache.original_url == content_queue_item.url)
+        stmt = MediaCache.__table__.select().where(
+            MediaCache.original_url == normalize_instagram_url(content_queue_item.url)
+        )
         result = await session.execute(stmt)
         cache_row = result.first()
 
@@ -31,6 +37,7 @@ async def send_to_user(user: User, content_queue_item) -> None:
         'video': cache.get('telegram_file_id_video'),
         'audio': cache.get('telegram_file_id_audio'),
         'photo': cache.get('telegram_file_id_photo'),
+        'document': cache.get('telegram_file_id_document'),
     }
 
     if not any(file_ids.values()):
@@ -45,22 +52,42 @@ async def send_to_user(user: User, content_queue_item) -> None:
                 await bot.send_video(chat_id=chat_id, video=file_ids['video'])
             if file_ids['audio']:
                 await bot.send_audio(chat_id=chat_id, audio=file_ids['audio'])
+            if file_ids['document']:
+                await bot.send_document(chat_id=chat_id, document=file_ids['document'])
+            if not file_ids['video'] and not file_ids['audio'] and not file_ids['document'] and file_ids['photo']:
+                await bot.send_photo(chat_id=chat_id, photo=file_ids['photo'])
+            if not file_ids['video'] and not file_ids['audio'] and not file_ids['document'] and not file_ids['photo']:
+                raise ValueError('Media file_id missing')
         elif delivery_type == 'photo':
             if not file_ids['photo']:
                 raise ValueError('Photo file_id missing')
             await bot.send_photo(chat_id=chat_id, photo=file_ids['photo'])
         elif delivery_type == 'carousel':
             media = []
-            if file_ids['photo']:
+            for entry in cache.get('telegram_file_ids') or []:
+                if entry.get('file_id_photo'):
+                    media.append(InputMediaPhoto(media=entry['file_id_photo']))
+                elif entry.get('file_id_video'):
+                    media.append(InputMediaVideo(media=entry['file_id_video']))
+            if not media and file_ids['photo']:
                 media.append(InputMediaPhoto(media=file_ids['photo']))
-            if file_ids['video']:
+            if not media and file_ids['video']:
                 media.append(InputMediaVideo(media=file_ids['video']))
             if not media:
                 raise ValueError('Carousel media IDs missing')
             await bot.send_media_group(chat_id=chat_id, media=media)
+            for entry in cache.get('telegram_file_ids') or []:
+                if entry.get('file_id_audio'):
+                    await bot.send_audio(chat_id=chat_id, audio=entry['file_id_audio'])
+                if entry.get('file_id_document'):
+                    await bot.send_document(chat_id=chat_id, document=entry['file_id_document'])
         else:
             if file_ids['video']:
                 await bot.send_video(chat_id=chat_id, video=file_ids['video'])
+                if file_ids['audio']:
+                    await bot.send_audio(chat_id=chat_id, audio=file_ids['audio'])
+                if file_ids['document']:
+                    await bot.send_document(chat_id=chat_id, document=file_ids['document'])
             elif file_ids['photo']:
                 await bot.send_photo(chat_id=chat_id, photo=file_ids['photo'])
             else:
@@ -73,12 +100,16 @@ async def send_to_user(user: User, content_queue_item) -> None:
                     user_id=user.id,
                     delivery_type=delivery_type,
                     status=status,
+                    created_at=datetime.utcnow(),
                 )
             )
             await session.execute(
                 User.__table__.update()
                 .where(User.id == user.id)
-                .values(daily_downloads_today=User.daily_downloads_today + 1)
+                .values(
+                    daily_downloads_today=func.coalesce(User.daily_downloads_today, 0) + 1,
+                    daily_downloads_updated_at=func.now(),
+                )
             )
             await session.commit()
 
@@ -91,6 +122,7 @@ async def send_to_user(user: User, content_queue_item) -> None:
                     user_id=user.id,
                     delivery_type=delivery_type,
                     status=status,
+                    created_at=datetime.utcnow(),
                 )
             )
             await session.commit()

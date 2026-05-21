@@ -64,7 +64,7 @@ class NotificationScheduler:
             stmt = (
                 select(User)
                 .where(User.subscription_until < now)
-                .where(User.subscription_status != 'expired')
+                .where(User.subscription_status.in_(['active', 'free_trial']))
             )
             result = await session.execute(stmt)
             users = result.scalars().all()
@@ -85,7 +85,12 @@ class NotificationScheduler:
 
     async def _daily_reset_downloads(self) -> None:
         async with async_session() as session:
-            await session.execute(update(User).values(daily_downloads_today=0))
+            await session.execute(
+                update(User).values(
+                    daily_downloads_today=0,
+                    daily_downloads_updated_at=datetime.utcnow(),
+                )
+            )
             await session.commit()
         logger.info('Reset daily_downloads_today for all users')
 

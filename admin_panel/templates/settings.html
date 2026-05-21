@@ -57,6 +57,7 @@
                 { key: 'max_video_size_mb', label: 'Max Video Size (MB)', description: 'Maximum allowed video file size.', type: 'number', placeholder: '50' },
                 { key: 'subscription_remind_days', label: 'Subscription Remind Days', description: 'Days before expiry to remind users.', type: 'number', placeholder: '3' },
                 { key: 'admin_telegram_chat_id', label: 'Admin Telegram Chat ID', description: 'Telegram chat ID for administrative alerts.', type: 'text', placeholder: '123456789' },
+                { key: 'check_instagram_following', label: 'Check Instagram Following', description: 'Before queueing content, verify that the watcher account follows the content owner. Disable to accept all received links.', type: 'boolean', placeholder: '' },
                 { key: 'new_account_notify', label: 'New Account Notifications', description: 'Notify admin when a new account is added.', type: 'boolean', placeholder: '' }
             ],
             values: {},
@@ -83,7 +84,7 @@
             },
 
             parseValue(key, value) {
-                if (key === 'new_account_notify') {
+                if (key === 'new_account_notify' || key === 'check_instagram_following') {
                     return value === 'True' || value === 'true' || value === true;
                 }
                 return isNaN(value) ? value : Number(value);

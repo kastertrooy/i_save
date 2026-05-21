@@ -103,7 +103,7 @@ async def login(
         key='refresh_token',
         value=refresh_token,
         httponly=True,
-        secure=True,
+        secure=http_request.url.scheme == 'https',
         samesite='strict',
         max_age=7 * 24 * 60 * 60  # 7 days
     )

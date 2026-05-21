@@ -2,11 +2,11 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, status, Depends, Query, Header, Cookie
-from sqlalchemy import select, and_, func
+from sqlalchemy import select, and_, func, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.database.connection import get_db
-from shared.database.models import User, SubscriptionLog, StaffActionLog
+from shared.database.models import User, SubscriptionLog, DeliveryLog, StaffActionLog
 from shared.logger import get_logger
 from admin_panel.middleware.auth_middleware import get_current_user
 
@@ -68,6 +68,7 @@ async def list_users(
     if search:
         stmt = stmt.where(
             (User.instagram_id.ilike(f'%{search}%')) |
+            (User.instagram_username.ilike(f'%{search}%')) |
             (User.telegram_username.ilike(f'%{search}%'))
         )
     
@@ -80,6 +81,7 @@ async def list_users(
     if search:
         count_stmt = count_stmt.where(
             (User.instagram_id.ilike(f'%{search}%')) |
+            (User.instagram_username.ilike(f'%{search}%')) |
             (User.telegram_username.ilike(f'%{search}%'))
         )
     
@@ -101,6 +103,7 @@ async def list_users(
             {
                 'id': u.id,
                 'instagram_id': u.instagram_id,
+                'instagram_username': u.instagram_username,
                 'telegram_chat_id': u.telegram_chat_id,
                 'telegram_username': u.telegram_username,
                 'language': u.language,
@@ -139,6 +142,7 @@ async def get_user(
     return {
         'id': user.id,
         'instagram_id': user.instagram_id,
+        'instagram_username': user.instagram_username,
         'telegram_chat_id': user.telegram_chat_id,
         'telegram_username': user.telegram_username,
         'language': user.language,
@@ -350,6 +354,47 @@ async def unblock_user(
     logger.info('Staff %s unblocked user %s', staff_id, user_id)
     
     return {'user_id': user_id, 'status': 'active'}
+
+
+@router.delete('/{user_id}')
+async def delete_user(
+    user_id: int,
+    authorization: Optional[str] = Header(None),
+    refresh_token: Optional[str] = Cookie(None),
+    db: AsyncSession = Depends(get_db)
+) -> dict:
+    """Delete a user and user-owned dependent logs."""
+    staff_id, role = _require_admin_or_staff(authorization, refresh_token)
+
+    stmt = select(User).where(User.id == user_id)
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail='User not found'
+        )
+
+    instagram_label = f'@{user.instagram_username}' if user.instagram_username else user.instagram_id
+    user_label = f'{instagram_label} (id={user.id})'
+
+    await db.execute(delete(DeliveryLog).where(DeliveryLog.user_id == user_id))
+    await db.execute(delete(SubscriptionLog).where(SubscriptionLog.user_id == user_id))
+    await db.delete(user)
+
+    action_log = StaffActionLog(
+        staff_id=staff_id,
+        action='delete_user',
+        target_type='user',
+        old_value=user_label
+    )
+    db.add(action_log)
+
+    await db.commit()
+    logger.info('Staff %s deleted user %s', staff_id, user_id)
+
+    return {'message': 'User deleted', 'user_id': user_id}
 
 
 @router.patch('/{user_id}/daily-limit')

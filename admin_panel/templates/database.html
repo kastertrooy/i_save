@@ -1,0 +1,383 @@
+{% extends "base.html" %}
+
+{% block title %}База данных - INSTATG Admin Panel{% endblock %}
+
+{% block content %}
+<div x-data="databasePage()" x-init="init()" class="space-y-6">
+    <div class="flex items-center justify-between">
+        <div>
+            <h1 class="text-3xl font-bold text-white">База данных</h1>
+            <p class="text-gray-400 mt-1">Просмотр таблиц, добавление и изменение записей.</p>
+        </div>
+        <button @click="loadRows()" :disabled="!selectedTable || loadingRows"
+                class="px-4 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-500 text-white rounded">
+            Обновить
+        </button>
+    </div>
+
+    <div class="grid grid-cols-1 xl:grid-cols-4 gap-6">
+        <div class="card p-4 xl:col-span-1">
+            <h2 class="text-lg font-bold text-white mb-3">Таблицы</h2>
+            <div class="space-y-1 max-h-[70vh] overflow-y-auto">
+                <template x-for="table in tables" :key="table.name">
+                    <button @click="selectTable(table)"
+                            :class="selectedTable && selectedTable.name === table.name ? 'bg-blue-700 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'"
+                            class="w-full text-left px-3 py-2 rounded text-sm">
+                        <span x-text="table.display_name || table.name"></span>
+                        <span class="block text-xs text-gray-400" x-text="table.name"></span>
+                    </button>
+                </template>
+            </div>
+        </div>
+
+        <div class="space-y-6 xl:col-span-3">
+            <div class="card p-4">
+                <div class="flex items-center justify-between mb-3">
+                    <div>
+                        <h2 class="text-lg font-bold text-white" x-text="selectedTable ? (selectedTable.display_name || selectedTable.name) : 'Выберите таблицу'"></h2>
+                        <p class="text-sm text-gray-400" x-show="selectedTable" x-text="'Всего записей: ' + totalRows"></p>
+                    </div>
+                    <div class="flex items-center gap-2" x-show="selectedTable">
+                        <button @click="previousPage()" :disabled="page === 1 || loadingRows"
+                                class="px-3 py-1 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 text-white rounded text-sm">
+                            Назад
+                        </button>
+                        <span class="text-sm text-gray-400" x-text="'Страница ' + page"></span>
+                        <button @click="nextPage()" :disabled="page * limit >= totalRows || loadingRows"
+                                class="px-3 py-1 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 text-white rounded text-sm">
+                            Вперёд
+                        </button>
+                    </div>
+                </div>
+
+                <div x-show="!selectedTable" class="text-sm text-gray-400">
+                    Выберите таблицу слева.
+                </div>
+
+                <div x-show="selectedTable" class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead class="border-b border-gray-700">
+                            <tr>
+                                <th class="py-2 pr-4 text-left text-gray-300 whitespace-nowrap">Действия</th>
+                                <template x-for="column in columns" :key="column">
+                                    <th class="py-2 pr-4 text-left text-gray-300 whitespace-nowrap" x-text="column"></th>
+                                </template>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-700">
+                            <template x-for="(row, index) in rows" :key="index">
+                                <tr class="align-top hover:bg-gray-800/50">
+                                    <td class="py-2 pr-4 whitespace-nowrap">
+                                        <button @click="beginEdit(row)"
+                                                :disabled="!primaryKeyColumn()"
+                                                class="px-2 py-1 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-700 text-white text-xs rounded">
+                                            Изменить
+                                        </button>
+                                        <button @click="deleteRow(row)"
+                                                :disabled="!primaryKeyColumn()"
+                                                class="ml-2 px-2 py-1 bg-red-700 hover:bg-red-800 disabled:bg-gray-700 text-white text-xs rounded">
+                                            Удалить
+                                        </button>
+                                    </td>
+                                    <template x-for="column in columns" :key="column">
+                                        <td class="py-2 pr-4 max-w-xs truncate text-gray-200" :title="formatCellValue(row, column)" x-text="formatCellValue(row, column)"></td>
+                                    </template>
+                                </tr>
+                            </template>
+                            <tr x-show="rows.length === 0">
+                                <td :colspan="(columns.length || 0) + 1" class="py-4 text-center text-gray-400">
+                                    Записей нет.
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="card p-4" x-show="selectedTable">
+                <div class="flex items-center justify-between mb-3">
+                    <h2 class="text-lg font-bold text-white" x-text="editing ? 'Изменить запись' : 'Добавить запись'"></h2>
+                    <button x-show="editing" type="button" @click="cancelEdit()"
+                            class="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white rounded text-sm">
+                        Отмена
+                    </button>
+                </div>
+
+                <form @submit.prevent="submitRow()" class="space-y-4">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <template x-for="column in editableColumns()" :key="column.name">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-300 mb-1">
+                                    <span x-text="column.name"></span>
+                                    <span class="text-xs text-gray-500" x-text="'(' + column.type + ')'"></span>
+                                    <span x-show="!column.nullable && !column.primary_key && !editing" class="text-red-300">*</span>
+                                </label>
+                                <textarea x-show="column.type === 'json'"
+                                          x-model="form[column.name]"
+                                          rows="3"
+                                          :disabled="editing && column.primary_key"
+                                          class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white disabled:text-gray-500 focus:outline-none focus:border-blue-500"
+                                          placeholder='{"key": "value"}'></textarea>
+                                <select x-show="column.type === 'boolean'"
+                                        x-model="form[column.name]"
+                                        :disabled="editing && column.primary_key"
+                                        class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white disabled:text-gray-500 focus:outline-none focus:border-blue-500">
+                                    <option value=""></option>
+                                    <option value="true">true</option>
+                                    <option value="false">false</option>
+                                </select>
+                                <input x-show="column.type !== 'json' && column.type !== 'boolean'"
+                                       :type="column.type === 'integer' ? 'number' : column.type === 'datetime' ? 'datetime-local' : 'text'"
+                                       x-model="form[column.name]"
+                                       :disabled="editing && column.primary_key"
+                                       class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white disabled:text-gray-500 focus:outline-none focus:border-blue-500"
+                                       :placeholder="column.primary_key ? 'Оставьте пустым для авто ID' : ''">
+                            </div>
+                        </template>
+                    </div>
+
+                    <div x-show="formError" class="text-sm text-red-300" x-text="formError"></div>
+                    <div class="flex justify-end">
+                        <button type="submit" :disabled="saving"
+                                class="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 text-white rounded">
+                            <span x-show="!saving" x-text="editing ? 'Сохранить изменения' : 'Добавить запись'"></span>
+                            <span x-show="saving">Сохранение...</span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function databasePage() {
+        return {
+            tables: [],
+            selectedTable: null,
+            rows: [],
+            columns: [],
+            totalRows: 0,
+            page: 1,
+            limit: 15,
+            loadingRows: false,
+            saving: false,
+            editing: false,
+            editingPk: null,
+            form: {},
+            formError: '',
+
+            async init() {
+                await this.loadTables();
+                if (this.tables.length > 0) {
+                    await this.selectTable(this.tables[0]);
+                }
+            },
+
+            async loadTables() {
+                const token = localStorage.getItem('access_token');
+                const response = await fetch('/api/database/tables', {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    this.tables = data.tables || [];
+                }
+            },
+
+            async selectTable(table) {
+                this.selectedTable = table;
+                this.page = 1;
+                this.cancelEdit();
+                await this.loadRows();
+            },
+
+            async loadRows() {
+                if (!this.selectedTable) return;
+                this.loadingRows = true;
+                try {
+                    const token = localStorage.getItem('access_token');
+                    const params = new URLSearchParams({
+                        skip: (this.page - 1) * this.limit,
+                        limit: this.limit
+                    });
+                    const response = await fetch(`/api/database/tables/${this.selectedTable.name}/rows?${params}`, {
+                        headers: { 'Authorization': 'Bearer ' + token }
+                    });
+                    if (!response.ok) throw new Error('Не удалось загрузить записи');
+                    const data = await response.json();
+                    this.rows = data.rows || [];
+                    this.columns = data.columns || [];
+                    this.totalRows = data.total || 0;
+                } catch (err) {
+                    alert(err.message);
+                } finally {
+                    this.loadingRows = false;
+                }
+            },
+
+            editableColumns() {
+                if (!this.selectedTable) return [];
+                return this.selectedTable.columns;
+            },
+
+            primaryKeyColumn() {
+                if (!this.selectedTable) return null;
+                return this.selectedTable.columns.find((column) => column.primary_key) || null;
+            },
+
+            resetForm() {
+                this.form = {};
+                this.formError = '';
+                for (const column of this.editableColumns()) {
+                    this.form[column.name] = '';
+                }
+            },
+
+            beginEdit(row) {
+                const pk = this.primaryKeyColumn();
+                if (!pk) {
+                    this.formError = 'В этой таблице нет первичного ключа для изменения.';
+                    return;
+                }
+                this.editing = true;
+                this.editingPk = row[pk.name];
+                this.formError = '';
+                this.form = {};
+                for (const column of this.editableColumns()) {
+                    const value = row[column.name];
+                    this.form[column.name] = this.valueForInput(column, value);
+                }
+            },
+
+            cancelEdit() {
+                this.editing = false;
+                this.editingPk = null;
+                this.resetForm();
+            },
+
+            valueForInput(column, value) {
+                if (value === null || value === undefined) return '';
+                if (column.type === 'json') return JSON.stringify(value, null, 2);
+                if (column.type === 'datetime') return String(value).slice(0, 16);
+                return String(value);
+            },
+
+            buildPayload() {
+                const payload = {};
+                for (const column of this.editableColumns()) {
+                    if (this.editing && column.primary_key) continue;
+                    let value = this.form[column.name];
+                    if (column.type === 'json' && value) {
+                        try {
+                            value = JSON.parse(value);
+                        } catch (err) {
+                            this.formError = `${column.name}: нужен корректный JSON`;
+                            return null;
+                        }
+                    }
+                    if (value !== '') {
+                        payload[column.name] = value;
+                    }
+                }
+                return payload;
+            },
+
+            async submitRow() {
+                this.formError = '';
+                const payload = this.buildPayload();
+                if (payload === null) return;
+
+                this.saving = true;
+                try {
+                    const token = localStorage.getItem('access_token');
+                    const url = this.editing
+                        ? `/api/database/tables/${this.selectedTable.name}/rows/${encodeURIComponent(this.editingPk)}`
+                        : `/api/database/tables/${this.selectedTable.name}/rows`;
+                    const response = await fetch(url, {
+                        method: this.editing ? 'PATCH' : 'POST',
+                        headers: {
+                            'Authorization': 'Bearer ' + token,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(payload)
+                    });
+                    if (!response.ok) {
+                        const error = await response.json().catch(() => ({}));
+                        throw new Error(error.detail || (this.editing ? 'Не удалось изменить запись' : 'Не удалось добавить запись'));
+                    }
+                    this.cancelEdit();
+                    await this.loadRows();
+                } catch (err) {
+                    this.formError = err.message;
+                } finally {
+                    this.saving = false;
+                }
+            },
+
+            async deleteRow(row) {
+                const pk = this.primaryKeyColumn();
+                if (!pk) {
+                    this.formError = 'В этой таблице нет первичного ключа для удаления.';
+                    return;
+                }
+                const pkValue = row[pk.name];
+                if (!confirm(`Удалить запись ${pk.name}=${pkValue} из таблицы "${this.selectedTable.display_name || this.selectedTable.name}"?`)) {
+                    return;
+                }
+
+                try {
+                    const token = localStorage.getItem('access_token');
+                    const response = await fetch(
+                        `/api/database/tables/${this.selectedTable.name}/rows/${encodeURIComponent(pkValue)}`,
+                        {
+                            method: 'DELETE',
+                            headers: { 'Authorization': 'Bearer ' + token }
+                        }
+                    );
+                    if (!response.ok) {
+                        const error = await response.json().catch(() => ({}));
+                        throw new Error(error.detail || 'Не удалось удалить запись');
+                    }
+                    if (this.rows.length === 1 && this.page > 1) {
+                        this.page--;
+                    }
+                    this.cancelEdit();
+                    await this.loadRows();
+                } catch (err) {
+                    this.formError = err.message;
+                }
+            },
+
+            nextPage() {
+                if (this.page * this.limit >= this.totalRows) return;
+                this.page++;
+                this.loadRows();
+            },
+
+            previousPage() {
+                if (this.page <= 1) return;
+                this.page--;
+                this.loadRows();
+            },
+
+            formatValue(value) {
+                if (value === null || value === undefined) return '';
+                if (typeof value === 'object') return JSON.stringify(value);
+                return String(value);
+            },
+
+            formatCellValue(row, column) {
+                if (
+                    this.selectedTable &&
+                    this.selectedTable.name === 'direct_message_logs' &&
+                    column === 'instagram_id'
+                ) {
+                    if (row._instagram_username) return '@' + row._instagram_username;
+                }
+                return this.formatValue(row[column]);
+            }
+        }
+    }
+</script>
+{% endblock %}

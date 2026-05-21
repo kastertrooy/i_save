@@ -62,6 +62,11 @@ async def logs_page(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(request, 'logs.html')
 
 
+@router.get('/database', response_class=HTMLResponse, include_in_schema=False)
+async def database_page(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(request, 'database.html')
+
+
 @router.get('/auth/logout', include_in_schema=False)
 async def logout_page() -> RedirectResponse:
     response = RedirectResponse(url='/login', status_code=302)

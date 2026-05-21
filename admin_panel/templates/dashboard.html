@@ -3,12 +3,12 @@
 {% block title %}Dashboard - INSTATG Admin Panel{% endblock %}
 
 {% block content %}
-<div x-data="dashboard()" x-init="init()" class="space-y-6">
+<div x-data="dashboard()" x-init="init()" class="flex flex-col gap-6">
     <!-- Page Title -->
-    <h1 class="text-3xl font-bold text-white">Dashboard</h1>
+    <h1 class="text-3xl font-bold text-white" style="order: 10">Dashboard</h1>
     
     <!-- Metrics Cards -->
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4" style="order: 20">
         <!-- Queue Pending -->
         <div class="card p-6">
             <div class="flex items-center justify-between">
@@ -55,73 +55,308 @@
     </div>
     
     <!-- Service Status -->
-    <div class="card p-6">
-        <h2 class="text-xl font-bold text-white mb-4">Services Status</h2>
+    <div class="card p-6" style="order: 40">
+        <div class="mb-4 flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+            <div>
+                <h2 class="text-xl font-bold text-white">Services Status</h2>
+                <p class="mt-1 text-xs text-gray-400"
+                   x-text="systemResources.updated_at ? 'Last updated: ' + formatDate(systemResources.updated_at) : 'Not updated yet'"></p>
+                <p x-show="systemResourcesLoading" class="mt-1 text-xs text-blue-300">Loading resource metrics...</p>
+            </div>
+
+            <button @click="loadSystemResources(true, true)" :disabled="systemResourcesLoading"
+                    class="rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:bg-gray-700 disabled:text-gray-400">
+                <span x-show="!systemResourcesLoading">Load resource metrics</span>
+                <span x-show="systemResourcesLoading">Loading...</span>
+            </button>
+
+            <div class="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:min-w-[34rem]">
+                <div class="rounded border border-gray-700 bg-gray-800 p-3">
+                    <p class="text-xs uppercase text-gray-500">Health</p>
+                    <p class="mt-1 text-sm font-bold" :class="resourceHealthTextClass()" x-text="resourceHealthLabel()"></p>
+                </div>
+                <div class="rounded border border-gray-700 bg-gray-800 p-3">
+                    <p class="text-xs uppercase text-gray-500">CPU Free</p>
+                    <p class="mt-1 text-sm font-bold text-green-400" x-text="formatPercent(systemResources.cpu_available_percent)"></p>
+                </div>
+                <div class="rounded border border-gray-700 bg-gray-800 p-3">
+                    <p class="text-xs uppercase text-gray-500">RAM Free</p>
+                    <p class="mt-1 text-sm font-bold text-blue-400" x-text="formatPercent(systemResources.memory_available_percent)"></p>
+                </div>
+                <div class="rounded border border-gray-700 bg-gray-800 p-3">
+                    <p class="text-xs uppercase text-gray-500">Running</p>
+                    <p class="mt-1 text-sm font-bold text-white"
+                       x-text="resourceRunningCount() + '/' + resourceTotalCount()"></p>
+                </div>
+            </div>
+        </div>
+
+        <div x-show="systemResources.error" class="mb-4 rounded border border-yellow-800 bg-yellow-950 p-3 text-sm text-yellow-200"
+             x-text="systemResources.error"></div>
+
         <div class="space-y-3">
-            <template x-for="service in services" :key="service.id">
-                <div class="flex items-center justify-between p-4 bg-gray-800 rounded border border-gray-700">
-                    <div class="flex-1">
-                        <p class="font-semibold text-white" x-text="service.instance_name"></p>
-                        <p class="text-sm text-gray-400" x-text="service.service_type"></p>
+            <div class="hidden xl:grid grid-cols-[1.5fr_0.9fr_0.8fr_0.9fr_0.7fr_1fr_1.1fr_0.8fr] gap-4 px-4 text-xs font-semibold uppercase text-gray-500">
+                <span>Instance</span>
+                <span>Type</span>
+                <span>Status</span>
+                <span>Uptime</span>
+                <span>CPU</span>
+                <span>RAM</span>
+                <span>Network</span>
+                <span class="text-right">Actions</span>
+            </div>
+            <template x-for="service in displayedServices()" :key="service.id">
+                <div class="grid grid-cols-1 gap-3 p-4 bg-gray-800 rounded border border-gray-700 xl:grid-cols-[1.5fr_0.9fr_0.8fr_0.9fr_0.7fr_1fr_1.1fr_0.8fr] xl:items-center xl:gap-4">
+                    <div>
+                        <p class="text-xs font-semibold uppercase text-gray-500 xl:hidden">Instance</p>
+                        <p class="font-semibold text-white break-words" x-text="service.instance_name"></p>
                     </div>
-                    
-                    <div class="flex items-center space-x-4">
-                        <span :class="service.is_alive ? 'text-green-400' : 'text-red-400'" 
-                              x-text="service.is_alive ? '🟢 Running' : '🔴 Down'"></span>
-                        
-                        <button @click="stopService(service.id)" 
-                                class="px-3 py-1 bg-red-600 hover:bg-red-700 text-white text-sm rounded transition">
-                            Stop
+
+                    <div>
+                        <p class="text-xs font-semibold uppercase text-gray-500 xl:hidden">Type</p>
+                        <p class="text-sm text-gray-400 break-words" x-text="service.service_type"></p>
+                    </div>
+
+                    <div>
+                        <p class="text-xs font-semibold uppercase text-gray-500 xl:hidden">Status</p>
+                        <span class="text-sm font-semibold"
+                              :class="service.is_alive ? 'text-green-400' : 'text-red-400'"
+                              x-text="service.is_alive ? 'Running' : service.status || 'Down'"></span>
+                    </div>
+
+                    <div>
+                        <p class="text-xs font-semibold uppercase text-gray-500 xl:hidden">Uptime</p>
+                        <p class="text-sm text-gray-300" x-text="formatServiceUptime(service)"></p>
+                    </div>
+
+                    <div>
+                        <p class="text-xs font-semibold uppercase text-gray-500 xl:hidden">CPU</p>
+                        <p class="text-sm text-gray-300" x-text="formatPercent(service.cpu_load_percent)"></p>
+                    </div>
+
+                    <div>
+                        <p class="text-xs font-semibold uppercase text-gray-500 xl:hidden">RAM</p>
+                        <p class="text-sm text-gray-300" x-text="formatMemory(service.memory_usage_mb)"></p>
+                        <div class="mt-1 h-1.5 rounded-full bg-gray-700">
+                            <div class="h-1.5 rounded-full"
+                                 :class="loadBarClass(service.memory_percent)"
+                                 :style="'width: ' + clampPercent(service.memory_percent) + '%'"></div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <p class="text-xs font-semibold uppercase text-gray-500 xl:hidden">Network</p>
+                        <p class="text-sm text-gray-300"
+                           x-text="'RX ' + formatMemory(service.network_rx_mb) + ' / TX ' + formatMemory(service.network_tx_mb)"></p>
+                    </div>
+
+                    <div class="xl:text-right">
+                        <p class="text-xs font-semibold uppercase text-gray-500 xl:hidden">Actions</p>
+                        <button x-show="canDeleteService(service)"
+                                @click="deleteService(service)"
+                                class="rounded bg-red-700 px-3 py-1 text-sm font-semibold text-white transition hover:bg-red-600">
+                            Delete
                         </button>
-                        <button @click="restartService(service.id)" 
-                                class="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded transition">
-                            Restart
-                        </button>
+                        <span x-show="!canDeleteService(service)" class="text-xs text-gray-500">N/A</span>
                     </div>
                 </div>
             </template>
+            <p x-show="!systemResources.error && displayedServices().length === 0"
+               class="text-sm text-gray-400">No service resource data.</p>
         </div>
     </div>
-    
-    <!-- Activity Chart -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div class="card p-6">
-            <h2 class="text-xl font-bold text-white mb-4">Activity</h2>
-            <canvas id="activityChart" height="100"></canvas>
+
+    <!-- Queue Status -->
+    <div class="card p-6" style="order: 50">
+        <h2 class="text-xl font-bold text-white mb-4">Queue Status</h2>
+        <div class="space-y-4">
+            <div>
+                <div class="flex justify-between mb-2">
+                    <span class="text-sm text-gray-400">Pending</span>
+                    <span class="text-sm font-semibold" x-text="metrics.queue_pending || '0'"></span>
+                </div>
+                <div class="w-full bg-gray-700 rounded-full h-2">
+                    <div class="bg-blue-500 h-2 rounded-full" :style="'width: ' + ((metrics.queue_pending || 0) / 100 * 100) + '%'"></div>
+                </div>
+            </div>
+            
+            <div>
+                <div class="flex justify-between mb-2">
+                    <span class="text-sm text-gray-400">Failed</span>
+                    <span class="text-sm font-semibold" x-text="metrics.queue_failed || '0'"></span>
+                </div>
+                <div class="w-full bg-gray-700 rounded-full h-2">
+                    <div class="bg-red-500 h-2 rounded-full" :style="'width: ' + ((metrics.queue_failed || 0) / 100 * 100) + '%'"></div>
+                </div>
+            </div>
+            
+            <div>
+                <div class="flex justify-between mb-2">
+                    <span class="text-sm text-gray-400">No Telegram</span>
+                    <span class="text-sm font-semibold" x-text="metrics.queue_no_telegram || '0'"></span>
+                </div>
+                <div class="w-full bg-gray-700 rounded-full h-2">
+                    <div class="bg-yellow-500 h-2 rounded-full" :style="'width: ' + ((metrics.queue_no_telegram || 0) / 100 * 100) + '%'"></div>
+                </div>
+            </div>
         </div>
-        
-        <!-- Queue Status -->
+    </div>
+    <!-- Direct and Queue Split -->
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-6" style="order: 30">
         <div class="card p-6">
-            <h2 class="text-xl font-bold text-white mb-4">Queue Status</h2>
-            <div class="space-y-4">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-xl font-bold text-white">Recent Instagram Direct</h2>
+                <button @click="loadDirectMessages(true)" :disabled="directMessagesLoading"
+                        class="px-3 py-1 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-500 text-white text-sm rounded transition">
+                    <span x-show="!directMessagesLoading">Refresh</span>
+                    <span x-show="directMessagesLoading">Updating...</span>
+                </button>
+            </div>
+            <p class="mb-3 text-xs text-gray-400"
+               x-text="directMessagesUpdatedAt ? 'Last updated: ' + formatDate(directMessagesUpdatedAt) : 'Not updated yet'"></p>
+            <p x-show="!hasRunningWatcher()" class="mb-3 text-xs text-yellow-300">
+                Auto refresh is paused because no watcher is running.
+            </p>
+
+            <div x-show="directMessages.length === 0" class="text-sm text-gray-400">
+                No Direct messages recorded yet.
+            </div>
+
+            <div class="overflow-x-auto">
+                <table x-show="directMessages.length > 0" class="w-full text-sm">
+                    <thead class="border-b border-gray-700">
+                        <tr>
+                            <th class="py-2 pr-4 text-left text-gray-300">Username</th>
+                            <th class="py-2 pr-4 text-left text-gray-300">Time</th>
+                            <th class="py-2 pr-4 text-left text-gray-300">Message</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-700">
+                        <template x-for="message in directMessages" :key="message.id">
+                            <tr class="align-top">
+                                <td class="py-3 pr-4 font-semibold text-white" x-text="message.username || message.instagram_id || 'Unknown'"></td>
+                                <td class="py-3 pr-4 whitespace-nowrap text-xs text-gray-400" x-text="formatInstagramTime(message)"></td>
+                                <td class="py-3 pr-4">
+                                    <p class="text-gray-200 break-words" x-text="messageText(message)"></p>
+                                    <a x-show="message.url" :href="message.url" target="_blank" rel="noopener"
+                                       class="mt-1 block text-blue-300 hover:text-blue-200 break-words"
+                                       x-text="message.url"></a>
+                                    <div class="mt-2 flex flex-wrap gap-2">
+                                        <span class="rounded px-2 py-1 text-xs font-semibold"
+                                              :class="directStatusClass(message.status)"
+                                              x-text="message.status"></span>
+                                        <span x-show="message.error" class="text-xs text-yellow-300" x-text="message.error"></span>
+                                    </div>
+                                </td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="card p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-xl font-bold text-white">Queue Items</h2>
+                <span class="text-xs text-gray-400" x-show="pendingQueueLoading">Updating...</span>
+            </div>
+            <p class="mb-3 text-xs text-gray-400"
+               x-text="pendingQueueUpdatedAt ? 'Last updated: ' + formatDate(pendingQueueUpdatedAt) : 'Not updated yet'"></p>
+            <p x-show="!hasRunningDownloader()" class="mb-3 text-xs text-yellow-300">
+                Queue refresh is stopped because no downloader is running.
+            </p>
+
+            <div x-show="pendingQueue.length === 0" class="text-sm text-gray-400">
+                No queue items.
+            </div>
+
+            <div class="overflow-x-auto">
+                <table x-show="pendingQueue.length > 0" class="w-full text-sm">
+                    <thead class="border-b border-gray-700">
+                        <tr>
+                            <th class="py-2 pr-4 text-left text-gray-300">User</th>
+                            <th class="py-2 pr-4 text-left text-gray-300">Type</th>
+                            <th class="py-2 pr-4 text-left text-gray-300">Status</th>
+                            <th class="py-2 pr-4 text-left text-gray-300">URL</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-700">
+                        <template x-for="item in pendingQueue" :key="item.id">
+                            <tr class="align-top">
+                                <td class="py-3 pr-4">
+                                    <p class="font-semibold text-white" x-text="queueUserLabel(item)"></p>
+                                    <p class="text-xs text-gray-400" x-text="'#' + item.id"></p>
+                                </td>
+                                <td class="py-3 pr-4">
+                                    <span class="rounded bg-blue-900 px-2 py-1 text-xs font-semibold text-blue-200"
+                                          x-text="item.content_type || 'unknown'"></span>
+                                </td>
+                                <td class="py-3 pr-4">
+                                    <span class="rounded px-2 py-1 text-xs font-semibold"
+                                          :class="queueStatusClass(item.status)"
+                                          x-text="item.status || 'unknown'"></span>
+                                    <button x-show="item.status === 'failed'"
+                                            @click="openQueueLogs(item)"
+                                            class="mt-2 block rounded bg-red-700 px-2 py-1 text-xs font-semibold text-white hover:bg-red-600">
+                                        Logs
+                                    </button>
+                                </td>
+                                <td class="py-3 pr-4">
+                                    <a :href="item.url" target="_blank" rel="noopener"
+                                       class="text-blue-300 hover:text-blue-200 break-words"
+                                       x-text="item.url"></a>
+                                    <p class="mt-1 text-xs text-gray-400" x-text="'Retries: ' + item.retry_count"></p>
+                                </td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div x-show="queueLogsOpen"
+         x-cloak
+         class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+        <div @click.outside="closeQueueLogs()"
+             class="max-h-[85vh] w-full max-w-5xl overflow-hidden rounded-lg border border-gray-700 bg-gray-900 shadow-xl">
+            <div class="flex items-start justify-between gap-4 border-b border-gray-700 p-4">
                 <div>
-                    <div class="flex justify-between mb-2">
-                        <span class="text-sm text-gray-400">Pending</span>
-                        <span class="text-sm font-semibold" x-text="metrics.queue_pending || '0'"></span>
-                    </div>
-                    <div class="w-full bg-gray-700 rounded-full h-2">
-                        <div class="bg-blue-500 h-2 rounded-full" :style="'width: ' + ((metrics.queue_pending || 0) / 100 * 100) + '%'"></div>
-                    </div>
+                    <h2 class="text-xl font-bold text-white">Queue Logs</h2>
+                    <p class="mt-1 text-xs text-gray-400" x-text="selectedQueueItem ? queueLogTitle(selectedQueueItem) : ''"></p>
                 </div>
-                
-                <div>
-                    <div class="flex justify-between mb-2">
-                        <span class="text-sm text-gray-400">Failed</span>
-                        <span class="text-sm font-semibold" x-text="metrics.queue_failed || '0'"></span>
-                    </div>
-                    <div class="w-full bg-gray-700 rounded-full h-2">
-                        <div class="bg-red-500 h-2 rounded-full" :style="'width: ' + ((metrics.queue_failed || 0) / 100 * 100) + '%'"></div>
-                    </div>
+                <button @click="closeQueueLogs()"
+                        class="rounded bg-gray-700 px-3 py-1 text-sm text-white hover:bg-gray-600">
+                    Close
+                </button>
+            </div>
+
+            <div class="max-h-[70vh] overflow-y-auto p-4">
+                <div x-show="queueLogsLoading" class="text-sm text-gray-300">Loading logs...</div>
+                <div x-show="queueLogsError" class="rounded border border-red-800 bg-red-950 p-3 text-sm text-red-200"
+                     x-text="queueLogsError"></div>
+
+                <div x-show="!queueLogsLoading && !queueLogsError && allQueueLogs().length === 0"
+                     class="text-sm text-gray-400">
+                    No related logs found.
                 </div>
-                
-                <div>
-                    <div class="flex justify-between mb-2">
-                        <span class="text-sm text-gray-400">No Telegram</span>
-                        <span class="text-sm font-semibold" x-text="metrics.queue_no_telegram || '0'"></span>
-                    </div>
-                    <div class="w-full bg-gray-700 rounded-full h-2">
-                        <div class="bg-yellow-500 h-2 rounded-full" :style="'width: ' + ((metrics.queue_no_telegram || 0) / 100 * 100) + '%'"></div>
-                    </div>
+
+                <div x-show="!queueLogsLoading && !queueLogsError && allQueueLogs().length > 0"
+                     class="space-y-3">
+                    <template x-for="(log, index) in allQueueLogs()" :key="log.source + '-' + (log.id || index) + '-' + index">
+                        <div class="rounded border border-gray-700 bg-gray-800 p-3">
+                            <div class="mb-2 flex flex-wrap items-center gap-2 text-xs">
+                                <span class="rounded px-2 py-1 font-semibold"
+                                      :class="logLevelClass(log.level)"
+                                      x-text="(log.level || 'info').toUpperCase()"></span>
+                                <span class="text-gray-300" x-text="log.source || log.service || 'log'"></span>
+                                <span x-show="log.service" class="text-gray-500" x-text="log.service"></span>
+                                <span x-show="log.container" class="text-gray-500" x-text="log.container"></span>
+                                <span class="text-gray-500" x-text="formatDate(log.timestamp)"></span>
+                            </div>
+                            <pre class="whitespace-pre-wrap break-words text-xs leading-relaxed text-gray-100" x-text="log.message"></pre>
+                        </div>
+                    </template>
                 </div>
             </div>
         </div>
@@ -134,6 +369,9 @@
         border: 1px solid #374151;
         border-radius: 0.5rem;
     }
+    [x-cloak] {
+        display: none !important;
+    }
 </style>
 
 <script>
@@ -141,14 +379,45 @@
         return {
             metrics: {},
             services: [],
-            chart: null,
+            systemResources: {},
+            systemResourcesLoading: false,
+            directMessages: [],
+            pendingQueue: [],
+            directMessagesLoading: false,
+            pendingQueueLoading: false,
+            queueLogsOpen: false,
+            queueLogsLoading: false,
+            queueLogsError: '',
+            selectedQueueItem: null,
+            queueLogs: {
+                delivery_logs: [],
+                direct_logs: [],
+                container_logs: []
+            },
+            directMessagesUpdatedAt: null,
+            pendingQueueUpdatedAt: null,
+            directMessagesRefreshInterval: null,
+            pendingQueueRefreshInterval: null,
+            nowTick: Date.now(),
             
             async init() {
                 await this.loadMetrics();
                 await this.loadServices();
-                this.initChart();
-                setInterval(() => this.loadMetrics(), 30000);
-                setInterval(() => this.loadServices(), 30000);
+                this.syncDirectRefresh();
+                this.syncPendingQueueRefresh();
+                await this.loadDirectMessages(true);
+                await this.loadPendingQueue(true);
+                setInterval(async () => {
+                    await this.loadMetrics();
+                }, 30000);
+                setInterval(async () => {
+                    await this.loadServices();
+                    this.syncDirectRefresh();
+                    this.syncPendingQueueRefresh();
+                }, 30000);
+                setInterval(() => {
+                    this.nowTick = Date.now();
+                }, 1000);
             },
             
             async loadMetrics() {
@@ -180,25 +449,239 @@
                     if (response.ok) {
                         const data = await response.json();
                         this.services = data.services || [];
+                        this.syncDirectRefresh();
                     }
                 } catch (err) {
                     console.error('Error loading services:', err);
                 }
             },
-            
-            async stopService(serviceId) {
+
+            async loadSystemResources(includeStats = true, force = false) {
+                if (includeStats && this.systemResourcesLoading) {
+                    return;
+                }
+                if (includeStats && !force) {
+                    return;
+                }
+                this.systemResourcesLoading = includeStats;
                 try {
                     const token = localStorage.getItem('access_token');
-                    await fetch(`/api/services/${serviceId}/stop`, {
+                    const response = await fetch(`/api/metrics/resources/status?include_stats=${includeStats ? 'true' : 'false'}`, {
+                        headers: {
+                            'Authorization': 'Bearer ' + token
+                        }
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        this.systemResources = includeStats ? data : this.mergeResourceShell(data);
+                    }
+                } catch (err) {
+                    this.systemResources = {
+                        available: false,
+                        error: err.message || 'Failed to load resource stats',
+                        services: []
+                    };
+                    console.error('Error loading resource stats:', err);
+                } finally {
+                    if (includeStats) {
+                        this.systemResourcesLoading = false;
+                    }
+                }
+            },
+
+            mergeResourceShell(data) {
+                const previousById = new Map((this.systemResources.services || []).map((service) => [service.id, service]));
+                return {
+                    ...data,
+                    services: (data.services || []).map((service) => ({
+                        ...(previousById.get(service.id) || {}),
+                        ...service
+                    }))
+                };
+            },
+
+            displayedServices() {
+                const resourcesByName = new Map(
+                    (this.systemResources.services || []).map((service) => [service.instance_name, service])
+                );
+                const dbServices = (this.services || []).map((service) => ({
+                    ...(resourcesByName.get(service.instance_name) || {}),
+                    ...service,
+                    can_delete: true
+                }));
+                const dbNames = new Set(dbServices.map((service) => service.instance_name));
+                const resourceOnly = (this.systemResources.services || [])
+                    .filter((service) => !dbNames.has(service.instance_name))
+                    .map((service) => ({ ...service, can_delete: false }));
+                if (dbServices.length > 0 || resourceOnly.length > 0) {
+                    return [...dbServices, ...resourceOnly];
+                }
+                return [];
+            },
+
+            canDeleteService(service) {
+                return Boolean(service && service.can_delete && Number.isInteger(Number(service.id)));
+            },
+
+            resourceRunningCount() {
+                if (this.systemResources.total_services !== undefined) {
+                    return this.systemResources.running_services || 0;
+                }
+                return (this.services || []).filter((service) => service.is_alive).length;
+            },
+
+            resourceTotalCount() {
+                if (this.systemResources.total_services !== undefined) {
+                    return this.systemResources.total_services || 0;
+                }
+                return (this.services || []).length;
+            },
+
+            async loadDirectMessages(force = false) {
+                if (!force && !this.hasRunningWatcher()) {
+                    this.stopDirectRefresh();
+                    return;
+                }
+                if (this.directMessagesLoading && !force) {
+                    return;
+                }
+                this.directMessagesLoading = true;
+                try {
+                    const token = localStorage.getItem('access_token');
+                    const response = await fetch('/api/metrics/direct/recent?limit=5', {
+                        headers: {
+                            'Authorization': 'Bearer ' + token
+                        }
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        this.directMessages = data.messages || [];
+                        this.directMessagesUpdatedAt = new Date().toISOString();
+                    }
+                } catch (err) {
+                    console.error('Error loading direct messages:', err);
+                } finally {
+                    this.directMessagesLoading = false;
+                }
+            },
+
+            async loadPendingQueue(force = false) {
+                if (!this.hasRunningDownloader() && !force) {
+                    this.stopPendingQueueRefresh();
+                    return;
+                }
+                if (this.pendingQueueLoading && !force) {
+                    return;
+                }
+                this.pendingQueueLoading = true;
+                try {
+                    const token = localStorage.getItem('access_token');
+                    const response = await fetch('/api/metrics/queue/recent?limit=8', {
+                        headers: {
+                            'Authorization': 'Bearer ' + token
+                        }
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        this.pendingQueue = data.items || [];
+                        this.pendingQueueUpdatedAt = new Date().toISOString();
+                    }
+                } catch (err) {
+                    console.error('Error loading pending queue:', err);
+                } finally {
+                    this.pendingQueueLoading = false;
+                }
+            },
+
+            hasRunningWatcher() {
+                return this.services.some((service) => (
+                    (service.service_type === 'watcher' || service.service_type === 'instagram_watcher') &&
+                    service.status === 'running' &&
+                    service.is_alive
+                ));
+            },
+
+            hasRunningDownloader() {
+                return this.services.some((service) => (
+                    service.service_type === 'downloader' &&
+                    service.status === 'running' &&
+                    service.is_alive
+                ));
+            },
+
+            syncDirectRefresh() {
+                if (this.hasRunningWatcher()) {
+                    this.startDirectRefresh();
+                } else {
+                    this.stopDirectRefresh();
+                }
+            },
+
+            syncPendingQueueRefresh() {
+                if (this.hasRunningDownloader()) {
+                    this.startPendingQueueRefresh();
+                } else {
+                    this.stopPendingQueueRefresh();
+                }
+            },
+
+            startDirectRefresh() {
+                if (this.directMessagesRefreshInterval) {
+                    return;
+                }
+                this.directMessagesRefreshInterval = setInterval(() => this.loadDirectMessages(), 5000);
+            },
+
+            startPendingQueueRefresh() {
+                if (this.pendingQueueRefreshInterval) {
+                    return;
+                }
+                this.pendingQueueRefreshInterval = setInterval(() => this.loadPendingQueue(), 2000);
+            },
+
+            stopDirectRefresh() {
+                if (!this.directMessagesRefreshInterval) {
+                    return;
+                }
+                clearInterval(this.directMessagesRefreshInterval);
+                this.directMessagesRefreshInterval = null;
+            },
+
+            stopPendingQueueRefresh() {
+                if (!this.pendingQueueRefreshInterval) {
+                    return;
+                }
+                clearInterval(this.pendingQueueRefreshInterval);
+                this.pendingQueueRefreshInterval = null;
+            },
+            
+            async deleteService(service) {
+                if (!this.canDeleteService(service)) {
+                    return;
+                }
+                if (!confirm(`Delete service ${service.instance_name}?`)) {
+                    return;
+                }
+                try {
+                    const token = localStorage.getItem('access_token');
+                    await fetch(`/api/services/${service.id}/stop`, {
                         method: 'POST',
                         headers: {
                             'Authorization': 'Bearer ' + token
                         }
                     });
                     await this.loadServices();
+                    this.systemResources = {};
                 } catch (err) {
-                    console.error('Error stopping service:', err);
+                    console.error('Error deleting service:', err);
                 }
+            },
+
+            async stopService(serviceId) {
+                return this.deleteService({ id: serviceId, instance_name: `#${serviceId}`, can_delete: true });
             },
             
             async restartService(serviceId) {
@@ -215,45 +698,191 @@
                     console.error('Error restarting service:', err);
                 }
             },
-            
-            initChart() {
-                const ctx = document.getElementById('activityChart')?.getContext('2d');
-                if (ctx) {
-                    this.chart = new Chart(ctx, {
-                        type: 'line',
-                        data: {
-                            labels: ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00', '24:00'],
-                            datasets: [{
-                                label: 'Downloads',
-                                data: [12, 19, 3, 5, 2, 3, 15],
-                                borderColor: '#3b82f6',
-                                backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                                borderWidth: 2,
-                                fill: true,
-                                tension: 0.4
-                            }]
-                        },
-                        options: {
-                            responsive: true,
-                            maintainAspectRatio: true,
-                            plugins: {
-                                legend: {
-                                    labels: { color: '#e5e7eb' }
-                                }
-                            },
-                            scales: {
-                                y: {
-                                    ticks: { color: '#9ca3af' },
-                                    grid: { color: '#374151' }
-                                },
-                                x: {
-                                    ticks: { color: '#9ca3af' },
-                                    grid: { color: '#374151' }
-                                }
-                            }
+
+            directStatusClass(status) {
+                if (status === 'queued') return 'bg-green-900 text-green-200';
+                if (status === 'received') return 'bg-blue-900 text-blue-200';
+                if (status === 'needs_telegram') return 'bg-purple-900 text-purple-200';
+                if (status === 'snapshot') return 'bg-gray-700 text-gray-200';
+                if (status === 'ignored') return 'bg-yellow-900 text-yellow-200';
+                return 'bg-gray-700 text-gray-200';
+            },
+
+            messageText(message) {
+                if (message.text) return message.text;
+                if (message.url) return message.content_type ? `${message.content_type} link` : 'Link';
+                if (message.content_type) return `${message.content_type} message`;
+                return 'No text';
+            },
+
+            queueUserLabel(item) {
+                if (item.telegram_username) return '@' + item.telegram_username;
+                if (item.telegram_chat_id) return item.telegram_chat_id;
+                if (item.instagram_username) return '@' + item.instagram_username;
+                return item.instagram_id || 'Unknown';
+            },
+
+            async openQueueLogs(item) {
+                this.selectedQueueItem = item;
+                this.queueLogsOpen = true;
+                this.queueLogsLoading = true;
+                this.queueLogsError = '';
+                this.queueLogs = {
+                    delivery_logs: [],
+                    direct_logs: [],
+                    container_logs: []
+                };
+
+                try {
+                    const token = localStorage.getItem('access_token');
+                    const response = await fetch(`/api/metrics/queue/${item.id}/logs`, {
+                        headers: {
+                            'Authorization': 'Bearer ' + token
                         }
                     });
+
+                    if (!response.ok) {
+                        const error = await response.json().catch(() => ({}));
+                        throw new Error(error.detail || 'Failed to load logs');
+                    }
+
+                    this.queueLogs = await response.json();
+                } catch (err) {
+                    this.queueLogsError = err.message || 'Failed to load logs';
+                    console.error('Error loading queue logs:', err);
+                } finally {
+                    this.queueLogsLoading = false;
                 }
+            },
+
+            closeQueueLogs() {
+                this.queueLogsOpen = false;
+                this.selectedQueueItem = null;
+            },
+
+            allQueueLogs() {
+                return [
+                    ...(this.queueLogs.delivery_logs || []),
+                    ...(this.queueLogs.direct_logs || []),
+                    ...(this.queueLogs.container_logs || [])
+                ];
+            },
+
+            queueLogTitle(item) {
+                return `#${item.id} ${item.content_type || 'unknown'} ${item.status || 'unknown'} - ${item.url || ''}`;
+            },
+
+            logLevelClass(level) {
+                if (level === 'error') return 'bg-red-900 text-red-200';
+                if (level === 'warning') return 'bg-yellow-900 text-yellow-200';
+                if (level === 'debug') return 'bg-gray-700 text-gray-200';
+                return 'bg-blue-900 text-blue-200';
+            },
+
+            queueStatusClass(status) {
+                if (status === 'pending') return 'bg-blue-900 text-blue-200';
+                if (status === 'downloading') return 'bg-cyan-900 text-cyan-200';
+                if (status === 'downloaded') return 'bg-green-900 text-green-200';
+                if (status === 'sending') return 'bg-purple-900 text-purple-200';
+                if (status === 'done') return 'bg-emerald-900 text-emerald-200';
+                if (status === 'failed') return 'bg-red-900 text-red-200';
+                if (status === 'expired') return 'bg-yellow-900 text-yellow-200';
+                if (status === 'no_telegram') return 'bg-gray-700 text-gray-200';
+                return 'bg-gray-700 text-gray-200';
+            },
+
+            formatInstagramTime(message) {
+                if (message.instagram_timestamp) {
+                    return new Date(Number(message.instagram_timestamp) / 1000).toLocaleString();
+                }
+                return this.formatDate(message.created_at);
+            },
+
+            clampPercent(value) {
+                const numberValue = Number(value) || 0;
+                return Math.max(0, Math.min(100, numberValue));
+            },
+
+            formatPercent(value) {
+                return this.clampPercent(value).toFixed(1) + '%';
+            },
+
+            formatMemory(value) {
+                const mb = Number(value) || 0;
+                if (mb >= 1024) {
+                    return (mb / 1024).toFixed(1) + ' GB';
+                }
+                return mb.toFixed(1) + ' MB';
+            },
+
+            loadBarClass(value) {
+                const percent = this.clampPercent(value);
+                if (percent >= 85) return 'bg-red-500';
+                if (percent >= 65) return 'bg-yellow-500';
+                return 'bg-green-500';
+            },
+
+            resourceHealthLabel() {
+                if (this.systemResources.error || this.systemResources.available === false) {
+                    return 'Unavailable';
+                }
+                const maxLoad = Math.max(
+                    this.clampPercent(this.systemResources.cpu_load_percent),
+                    this.clampPercent(this.systemResources.memory_percent)
+                );
+                if (maxLoad >= 85) return 'High load';
+                if (maxLoad >= 65) return 'Busy';
+                return 'Available';
+            },
+
+            resourceHealthClass() {
+                const label = this.resourceHealthLabel();
+                if (label === 'Unavailable') return 'bg-gray-700 text-gray-200';
+                if (label === 'High load') return 'bg-red-900 text-red-200';
+                if (label === 'Busy') return 'bg-yellow-900 text-yellow-200';
+                return 'bg-green-900 text-green-200';
+            },
+
+            resourceHealthTextClass() {
+                const label = this.resourceHealthLabel();
+                if (label === 'Unavailable') return 'text-gray-300';
+                if (label === 'High load') return 'text-red-300';
+                if (label === 'Busy') return 'text-yellow-300';
+                return 'text-green-300';
+            },
+
+            formatDate(value) {
+                if (!value) return 'N/A';
+                return new Date(value).toLocaleString();
+            },
+
+            formatDuration(seconds) {
+                if (seconds === null || seconds === undefined) return 'N/A';
+                const total = Math.max(0, Number(seconds) || 0);
+                const days = Math.floor(total / 86400);
+                const hours = Math.floor((total % 86400) / 3600);
+                const minutes = Math.floor((total % 3600) / 60);
+                const secs = total % 60;
+                const parts = [];
+                if (days) parts.push(`${days}d`);
+                if (hours || days) parts.push(`${hours}h`);
+                if (minutes || hours || days) parts.push(`${minutes}m`);
+                parts.push(`${secs}s`);
+                return parts.join(' ');
+            },
+
+            formatServiceUptime(service) {
+                if (service && service.uptime_label && !service.uptime_seconds) {
+                    return service.uptime_label;
+                }
+                if (!service || !service.is_alive || !service.started_at) {
+                    return 'N/A';
+                }
+                const startedAt = new Date(service.started_at).getTime();
+                if (!Number.isFinite(startedAt)) {
+                    return this.formatDuration(service.uptime_seconds);
+                }
+                return this.formatDuration(Math.floor((this.nowTick - startedAt) / 1000));
             }
         }
     }
